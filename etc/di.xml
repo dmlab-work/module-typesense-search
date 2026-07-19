@@ -1,0 +1,252 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Copyright © MageDevGroup. All rights reserved.
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <!--
+        Group (c): engine-specific search client. `ClientResolver::create()` builds the
+        client via our factory and reads options via our ClientOptions — never
+        `Magento\Elasticsearch\Model\Config`, whose paths do not apply to Typesense.
+    -->
+    <type name="Magento\AdvancedSearch\Model\Client\ClientResolver">
+        <arguments>
+            <argument name="clientFactories" xsi:type="array">
+                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseSearch\Model\Client\ClientFactory</item>
+            </argument>
+            <argument name="clientOptions" xsi:type="array">
+                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseSearch\Model\Client\ClientOptions</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!-- Engine connection validator, probed on config save / setup:install. -->
+    <type name="Magento\Search\Model\SearchEngine\Validator">
+        <arguments>
+            <argument name="engineValidators" xsi:type="array">
+                <item name="typesense" xsi:type="object">MageDevGroup\TypesenseSearch\Setup\Validator</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!-- Persist engine + connection settings passed at setup:install time. -->
+    <type name="Magento\Search\Setup\CompositeInstallConfig">
+        <arguments>
+            <argument name="installConfigList" xsi:type="array">
+                <item name="typesense" xsi:type="object">MageDevGroup\TypesenseSearch\Setup\InstallConfig</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!--
+        ============================================================================
+        Group (a): engine identity — plain registrations that make `typesense`
+        a selectable, resolvable engine. The literal string `typesense` mirrors
+        MageDevGroup\TypesenseIndexer\Api\EngineCode::ENGINE (di cannot reference
+        a PHP constant).
+        ============================================================================
+    -->
+
+    <!--
+        Being in `engineList` is what feeds Config::isElasticsearchEnabled(), which
+        gates the catalogsearch_fulltext indexer dependency + category-product
+        observer. No ES server is required — only presence in this list.
+    -->
+    <type name="Magento\Elasticsearch\Model\Config">
+        <arguments>
+            <argument name="engineList" xsi:type="array">
+                <item name="typesense" xsi:type="string">typesense</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!-- Engine is a valid choice for CatalogSearch's engine resolver. -->
+    <type name="Magento\Search\Model\EngineResolver">
+        <arguments>
+            <argument name="engines" xsi:type="array">
+                <item name="typesense" xsi:type="string">typesense</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!-- Admin dropdown label: Stores → Configuration → Catalog → Catalog Search. -->
+    <type name="Magento\Search\Model\Adminhtml\System\Config\Source\Engine">
+        <arguments>
+            <argument name="engines" xsi:type="array">
+                <item sortOrder="50" name="typesense" xsi:type="string">Typesense</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!-- Max page size the engine will return in one request. -->
+    <type name="Magento\Search\Model\Search\PageSizeProvider">
+        <arguments>
+            <argument name="pageSizeBySearchEngine" xsi:type="array">
+                <item name="typesense" xsi:type="number">10000</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!--
+        ============================================================================
+        Group (b): reuse Magento's existing ES classes verified engine-agnostic.
+        None of these contain ES protocol; both shipped ES engines share them.
+        We only point our engine name at the same classes / virtualTypes.
+        ============================================================================
+    -->
+
+    <!-- Deps are only Visibility + IndexScopeResolver — no ES protocol. -->
+    <type name="Magento\CatalogSearch\Model\ResourceModel\EngineProvider">
+        <arguments>
+            <argument name="engines" xsi:type="array">
+                <item name="typesense" xsi:type="string">Magento\Elasticsearch\Model\ResourceModel\Engine</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!-- Deps are only Catalog\Config + Visibility — no ES protocol. -->
+    <type name="Magento\CatalogSearch\Model\Advanced\ProductCollectionPrepareStrategyProvider">
+        <arguments>
+            <argument name="strategies" xsi:type="array">
+                <item name="typesense" xsi:type="object">Magento\Elasticsearch\Model\Advanced\ProductCollectionPrepareStrategy</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!-- Layered-navigation collection factories: plain CatalogSearch collections. -->
+    <virtualType name="elasticsearchLayerCategoryItemCollectionProvider" type="Magento\Elasticsearch\Model\Layer\Category\ItemCollectionProvider">
+        <arguments>
+            <argument name="factories" xsi:type="array">
+                <item name="typesense" xsi:type="object">elasticsearchCategoryCollectionFactory</item>
+            </argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="elasticsearchLayerSearchItemCollectionProvider" type="Magento\Elasticsearch\Model\Layer\Search\ItemCollectionProvider">
+        <arguments>
+            <argument name="factories" xsi:type="array">
+                <item name="typesense" xsi:type="object">elasticsearchFulltextSearchCollectionFactory</item>
+            </argument>
+        </arguments>
+    </virtualType>
+    <type name="Magento\CatalogSearch\Model\Search\ItemCollectionProvider">
+        <arguments>
+            <argument name="factories" xsi:type="array">
+                <item name="typesense" xsi:type="object">elasticsearchAdvancedCollectionFactory</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!--
+        ============================================================================
+        typesense-indexer's implementations — this module registers them, exactly
+        as module-open-search registers module-elasticsearch's handler/structure.
+        Single writer: the indexer owns documents + schema; we only wire it in.
+        ============================================================================
+    -->
+    <type name="Magento\CatalogSearch\Model\Indexer\IndexerHandlerFactory">
+        <arguments>
+            <argument name="handlers" xsi:type="array">
+                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseIndexer\Model\Indexer\IndexerHandler</item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="Magento\CatalogSearch\Model\Indexer\IndexStructureFactory">
+        <arguments>
+            <argument name="structures" xsi:type="array">
+                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseIndexer\Model\Indexer\IndexStructure</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!--
+        ============================================================================
+        Query modifier pipeline — the composable seam (never a `preference`).
+        The composite applies QueryModifierInterface steps in di `sortOrder`, each
+        receiving the previous step's payload. Ships empty: later modules
+        (merchandising, semantic) add modifiers here so they compose instead of
+        colliding. Example:
+
+            <type name="MageDevGroup\TypesenseSearch\SearchAdapter\Query\QueryModifier">
+                <arguments>
+                    <argument name="modifiers" xsi:type="array">
+                        <item sortOrder="10" name="merchandising" xsi:type="object">Vendor\Module\Query\MyModifier</item>
+                    </argument>
+                </arguments>
+            </type>
+        ============================================================================
+    -->
+    <type name="MageDevGroup\TypesenseSearch\SearchAdapter\Query\QueryModifier">
+        <arguments>
+            <argument name="modifiers" xsi:type="array"/>
+        </arguments>
+    </type>
+
+    <!--
+        ============================================================================
+        Group (c): dynamic price aggregation. Magento's ES DataProvider/Interval are
+        ES-only by their own docblock, so we ship Typesense equivalents and register
+        them into the engine-resolved factories. The framework price-slider algorithm
+        (Auto/Improved) picks them by engine name; both read Typesense facet stats /
+        price-sorted windows over the store's collection alias.
+        ============================================================================
+    -->
+    <type name="Magento\Framework\Search\Dynamic\DataProviderFactory">
+        <arguments>
+            <argument name="dataProviders" xsi:type="array">
+                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseSearch\SearchAdapter\Dynamic\DataProvider</item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="Magento\Framework\Search\Dynamic\IntervalFactory">
+        <arguments>
+            <argument name="intervals" xsi:type="array">
+                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseSearch\SearchAdapter\Aggregation\Interval</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!--
+        ============================================================================
+        Group (c): search suggestions. Magento's ES Suggestions builds a phrase
+        suggester (ES-only), so we ship a Typesense equivalent backed by typo-tolerant
+        search and register the engine into the SuggestedQueries pool. Leaving
+        `typesense` unregistered here would fatal the search box.
+        ============================================================================
+    -->
+    <type name="Magento\AdvancedSearch\Model\SuggestedQueries">
+        <arguments>
+            <argument name="data" xsi:type="array">
+                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseSearch\Model\DataProvider\Suggestions</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!--
+        ============================================================================
+        Group (c): our engine-specific query adapter. `AdapterFactory` selects it
+        by engine name; the class is built in Task 6.
+        ============================================================================
+    -->
+    <type name="Magento\Search\Model\AdapterFactory">
+        <arguments>
+            <argument name="adapters" xsi:type="array">
+                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseSearch\SearchAdapter\Adapter</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!--
+        ============================================================================
+        NOT registered on purpose — do NOT copy module-open-search's di.xml wholesale.
+        open-search reuses Magento\Elasticsearch\Model\Indexer\IndexerHandler, so it
+        must feed the ES-internal proxies below. We ship typesense-indexer's own
+        handler, so nothing in our path consults them:
+          - Elasticsearch5\...\ProductFieldMapperProxy::productFieldMappers
+          - Elasticsearch5\...\BatchDataMapper\CategoryFieldsProviderProxy::categoryFieldsProviders
+          - Elasticsearch5\Model\Client\ClientFactoryProxy::clientFactories
+          - Elasticsearch\Model\Adapter\Elasticsearch::responseErrorExceptionList
+        ============================================================================
+    -->
+</config>
