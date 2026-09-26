@@ -1,10 +1,10 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\Exception;
+namespace DmLab\TypesenseSearch\Exception;
 
 /**
  * Thrown when a Magento search request contains a construct Typesense's query

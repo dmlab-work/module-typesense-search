@@ -1,13 +1,13 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\Test\Unit\Model\Client;
+namespace DmLab\TypesenseSearch\Test\Unit\Model\Client;
 
-use MageDevGroup\TypesenseCore\Model\Client\HealthChecker;
-use MageDevGroup\TypesenseSearch\Model\Client\TypesenseClientAdapter;
+use DmLab\TypesenseCore\Model\Client\HealthChecker;
+use DmLab\TypesenseSearch\Model\Client\TypesenseClientAdapter;
 use Magento\AdvancedSearch\Model\Client\ClientInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;

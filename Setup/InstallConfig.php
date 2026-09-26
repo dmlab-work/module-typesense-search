@@ -1,12 +1,12 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\Setup;
+namespace DmLab\TypesenseSearch\Setup;
 
-use MageDevGroup\TypesenseIndexer\Model\ConnectionSettings;
+use DmLab\TypesenseIndexer\Model\ConnectionSettings;
 use Magento\Framework\App\Config\Storage\WriterInterface;
 use Magento\Search\Setup\InstallConfigInterface;
 

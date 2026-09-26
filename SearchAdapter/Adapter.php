@@ -1,19 +1,19 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\SearchAdapter;
+namespace DmLab\TypesenseSearch\SearchAdapter;
 
-use MageDevGroup\TypesenseCore\Exception\TypesenseException;
-use MageDevGroup\TypesenseCore\Model\Client\TypesenseClient;
-use MageDevGroup\TypesenseIndexer\Api\IndexNameResolverInterface;
-use MageDevGroup\TypesenseSearch\SearchAdapter\Aggregation\Builder as AggregationBuilder;
-use MageDevGroup\TypesenseSearch\Exception\UnsupportedSearchRequestException;
-use MageDevGroup\TypesenseSearch\SearchAdapter\Query\QueryBuilder;
-use MageDevGroup\TypesenseSearch\SearchAdapter\Query\QueryModifier;
-use MageDevGroup\TypesenseSearch\SearchAdapter\StoreResolver;
+use DmLab\TypesenseCore\Exception\TypesenseException;
+use DmLab\TypesenseCore\Model\Client\TypesenseClient;
+use DmLab\TypesenseIndexer\Api\IndexNameResolverInterface;
+use DmLab\TypesenseSearch\SearchAdapter\Aggregation\Builder as AggregationBuilder;
+use DmLab\TypesenseSearch\Exception\UnsupportedSearchRequestException;
+use DmLab\TypesenseSearch\SearchAdapter\Query\QueryBuilder;
+use DmLab\TypesenseSearch\SearchAdapter\Query\QueryModifier;
+use DmLab\TypesenseSearch\SearchAdapter\StoreResolver;
 use Magento\AdvancedSearch\Model\Client\ClientException;
 use Magento\Framework\Api\AttributeInterface;
 use Magento\Framework\Api\AttributeValue;

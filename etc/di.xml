@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!--
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 -->
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -14,10 +14,10 @@
     <type name="Magento\AdvancedSearch\Model\Client\ClientResolver">
         <arguments>
             <argument name="clientFactories" xsi:type="array">
-                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseSearch\Model\Client\ClientFactory</item>
+                <item name="typesense" xsi:type="string">DmLab\TypesenseSearch\Model\Client\ClientFactory</item>
             </argument>
             <argument name="clientOptions" xsi:type="array">
-                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseSearch\Model\Client\ClientOptions</item>
+                <item name="typesense" xsi:type="string">DmLab\TypesenseSearch\Model\Client\ClientOptions</item>
             </argument>
         </arguments>
     </type>
@@ -26,7 +26,7 @@
     <type name="Magento\Search\Model\SearchEngine\Validator">
         <arguments>
             <argument name="engineValidators" xsi:type="array">
-                <item name="typesense" xsi:type="object">MageDevGroup\TypesenseSearch\Setup\Validator</item>
+                <item name="typesense" xsi:type="object">DmLab\TypesenseSearch\Setup\Validator</item>
             </argument>
         </arguments>
     </type>
@@ -35,7 +35,7 @@
     <type name="Magento\Search\Setup\CompositeInstallConfig">
         <arguments>
             <argument name="installConfigList" xsi:type="array">
-                <item name="typesense" xsi:type="object">MageDevGroup\TypesenseSearch\Setup\InstallConfig</item>
+                <item name="typesense" xsi:type="object">DmLab\TypesenseSearch\Setup\InstallConfig</item>
             </argument>
         </arguments>
     </type>
@@ -44,7 +44,7 @@
         ============================================================================
         Group (a): engine identity — plain registrations that make `typesense`
         a selectable, resolvable engine. The literal string `typesense` mirrors
-        MageDevGroup\TypesenseIndexer\Api\EngineCode::ENGINE (di cannot reference
+        DmLab\TypesenseIndexer\Api\EngineCode::ENGINE (di cannot reference
         a PHP constant).
         ============================================================================
     -->
@@ -148,14 +148,14 @@
     <type name="Magento\CatalogSearch\Model\Indexer\IndexerHandlerFactory">
         <arguments>
             <argument name="handlers" xsi:type="array">
-                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseIndexer\Model\Indexer\IndexerHandler</item>
+                <item name="typesense" xsi:type="string">DmLab\TypesenseIndexer\Model\Indexer\IndexerHandler</item>
             </argument>
         </arguments>
     </type>
     <type name="Magento\CatalogSearch\Model\Indexer\IndexStructureFactory">
         <arguments>
             <argument name="structures" xsi:type="array">
-                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseIndexer\Model\Indexer\IndexStructure</item>
+                <item name="typesense" xsi:type="string">DmLab\TypesenseIndexer\Model\Indexer\IndexStructure</item>
             </argument>
         </arguments>
     </type>
@@ -168,7 +168,7 @@
         (merchandising, semantic) add modifiers here so they compose instead of
         colliding. Example:
 
-            <type name="MageDevGroup\TypesenseSearch\SearchAdapter\Query\QueryModifier">
+            <type name="DmLab\TypesenseSearch\SearchAdapter\Query\QueryModifier">
                 <arguments>
                     <argument name="modifiers" xsi:type="array">
                         <item sortOrder="10" name="merchandising" xsi:type="object">Vendor\Module\Query\MyModifier</item>
@@ -177,7 +177,7 @@
             </type>
         ============================================================================
     -->
-    <type name="MageDevGroup\TypesenseSearch\SearchAdapter\Query\QueryModifier">
+    <type name="DmLab\TypesenseSearch\SearchAdapter\Query\QueryModifier">
         <arguments>
             <argument name="modifiers" xsi:type="array"/>
         </arguments>
@@ -195,14 +195,14 @@
     <type name="Magento\Framework\Search\Dynamic\DataProviderFactory">
         <arguments>
             <argument name="dataProviders" xsi:type="array">
-                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseSearch\SearchAdapter\Dynamic\DataProvider</item>
+                <item name="typesense" xsi:type="string">DmLab\TypesenseSearch\SearchAdapter\Dynamic\DataProvider</item>
             </argument>
         </arguments>
     </type>
     <type name="Magento\Framework\Search\Dynamic\IntervalFactory">
         <arguments>
             <argument name="intervals" xsi:type="array">
-                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseSearch\SearchAdapter\Aggregation\Interval</item>
+                <item name="typesense" xsi:type="string">DmLab\TypesenseSearch\SearchAdapter\Aggregation\Interval</item>
             </argument>
         </arguments>
     </type>
@@ -218,7 +218,7 @@
     <type name="Magento\AdvancedSearch\Model\SuggestedQueries">
         <arguments>
             <argument name="data" xsi:type="array">
-                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseSearch\Model\DataProvider\Suggestions</item>
+                <item name="typesense" xsi:type="string">DmLab\TypesenseSearch\Model\DataProvider\Suggestions</item>
             </argument>
         </arguments>
     </type>
@@ -232,7 +232,7 @@
     <type name="Magento\Search\Model\AdapterFactory">
         <arguments>
             <argument name="adapters" xsi:type="array">
-                <item name="typesense" xsi:type="string">MageDevGroup\TypesenseSearch\SearchAdapter\Adapter</item>
+                <item name="typesense" xsi:type="string">DmLab\TypesenseSearch\SearchAdapter\Adapter</item>
             </argument>
         </arguments>
     </type>

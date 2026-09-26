@@ -1,13 +1,13 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\Test\Unit\SearchAdapter\Query;
+namespace DmLab\TypesenseSearch\Test\Unit\SearchAdapter\Query;
 
-use MageDevGroup\TypesenseSearch\SearchAdapter\Query\QueryModifier;
-use MageDevGroup\TypesenseSearch\SearchAdapter\Query\QueryModifierInterface;
+use DmLab\TypesenseSearch\SearchAdapter\Query\QueryModifier;
+use DmLab\TypesenseSearch\SearchAdapter\Query\QueryModifierInterface;
 use Magento\Framework\Search\RequestInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;

@@ -1,12 +1,12 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\Test\Unit\Setup;
+namespace DmLab\TypesenseSearch\Test\Unit\Setup;
 
-use MageDevGroup\TypesenseSearch\Setup\Validator;
+use DmLab\TypesenseSearch\Setup\Validator;
 use Magento\AdvancedSearch\Model\Client\ClientInterface;
 use Magento\AdvancedSearch\Model\Client\ClientResolver;
 use Magento\Search\Model\SearchEngine\ValidatorInterface;

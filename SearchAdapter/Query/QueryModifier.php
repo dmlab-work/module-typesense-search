@@ -1,10 +1,10 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\SearchAdapter\Query;
+namespace DmLab\TypesenseSearch\SearchAdapter\Query;
 
 use Magento\Framework\Search\RequestInterface;
 

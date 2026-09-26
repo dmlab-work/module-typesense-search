@@ -1,17 +1,17 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\Test\Unit\SearchAdapter\Dynamic;
+namespace DmLab\TypesenseSearch\Test\Unit\SearchAdapter\Dynamic;
 
-use MageDevGroup\TypesenseCore\Exception\TypesenseException;
-use MageDevGroup\TypesenseCore\Model\Client\TypesenseClient;
-use MageDevGroup\TypesenseIndexer\Api\IndexNameResolverInterface;
-use MageDevGroup\TypesenseSearch\SearchAdapter\Aggregation\Interval;
-use MageDevGroup\TypesenseSearch\SearchAdapter\Dynamic\DataProvider;
-use MageDevGroup\TypesenseSearch\SearchAdapter\Field\FieldNameResolver;
+use DmLab\TypesenseCore\Exception\TypesenseException;
+use DmLab\TypesenseCore\Model\Client\TypesenseClient;
+use DmLab\TypesenseIndexer\Api\IndexNameResolverInterface;
+use DmLab\TypesenseSearch\SearchAdapter\Aggregation\Interval;
+use DmLab\TypesenseSearch\SearchAdapter\Dynamic\DataProvider;
+use DmLab\TypesenseSearch\SearchAdapter\Field\FieldNameResolver;
 use Magento\Catalog\Model\Layer\Filter\Price\Range;
 use Magento\Framework\Search\Dynamic\EntityStorage;
 use Magento\Framework\Search\Dynamic\IntervalFactory;

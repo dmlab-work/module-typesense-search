@@ -1,16 +1,16 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\Model\DataProvider;
+namespace DmLab\TypesenseSearch\Model\DataProvider;
 
-use MageDevGroup\TypesenseCore\Exception\TypesenseException;
-use MageDevGroup\TypesenseCore\Model\Client\TypesenseClient;
-use MageDevGroup\TypesenseIndexer\Api\SearchableFieldsProviderInterface;
-use MageDevGroup\TypesenseIndexer\Api\EngineCode;
-use MageDevGroup\TypesenseIndexer\Api\IndexNameResolverInterface;
+use DmLab\TypesenseCore\Exception\TypesenseException;
+use DmLab\TypesenseCore\Model\Client\TypesenseClient;
+use DmLab\TypesenseIndexer\Api\SearchableFieldsProviderInterface;
+use DmLab\TypesenseIndexer\Api\EngineCode;
+use DmLab\TypesenseIndexer\Api\IndexNameResolverInterface;
 use Magento\AdvancedSearch\Model\SuggestedQueriesInterface;
 use Magento\CatalogSearch\Model\Indexer\Fulltext;
 use Magento\Framework\App\Config\ScopeConfigInterface;

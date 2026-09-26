@@ -1,16 +1,16 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\Test\Unit\SearchAdapter\Query;
+namespace DmLab\TypesenseSearch\Test\Unit\SearchAdapter\Query;
 
-use MageDevGroup\TypesenseIndexer\Api\SearchableFieldsProviderInterface;
-use MageDevGroup\TypesenseSearch\Exception\UnsupportedSearchRequestException;
-use MageDevGroup\TypesenseSearch\SearchAdapter\Field\FieldNameResolver;
-use MageDevGroup\TypesenseSearch\SearchAdapter\Query\QueryBuilder;
-use MageDevGroup\TypesenseSearch\SearchAdapter\StoreResolver;
+use DmLab\TypesenseIndexer\Api\SearchableFieldsProviderInterface;
+use DmLab\TypesenseSearch\Exception\UnsupportedSearchRequestException;
+use DmLab\TypesenseSearch\SearchAdapter\Field\FieldNameResolver;
+use DmLab\TypesenseSearch\SearchAdapter\Query\QueryBuilder;
+use DmLab\TypesenseSearch\SearchAdapter\StoreResolver;
 use Magento\Framework\App\ScopeInterface;
 use Magento\Framework\App\ScopeResolverInterface;
 use Magento\Framework\Search\Request\Dimension;

@@ -1,15 +1,15 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\SearchAdapter\Dynamic;
+namespace DmLab\TypesenseSearch\SearchAdapter\Dynamic;
 
-use MageDevGroup\TypesenseCore\Exception\TypesenseException;
-use MageDevGroup\TypesenseCore\Model\Client\TypesenseClient;
-use MageDevGroup\TypesenseIndexer\Api\IndexNameResolverInterface;
-use MageDevGroup\TypesenseSearch\SearchAdapter\Field\FieldNameResolver;
+use DmLab\TypesenseCore\Exception\TypesenseException;
+use DmLab\TypesenseCore\Model\Client\TypesenseClient;
+use DmLab\TypesenseIndexer\Api\IndexNameResolverInterface;
+use DmLab\TypesenseSearch\SearchAdapter\Field\FieldNameResolver;
 use Magento\Catalog\Model\Layer\Filter\Price\Range;
 use Magento\CatalogSearch\Model\Indexer\Fulltext;
 use Magento\Framework\Search\Dynamic\DataProviderInterface;
@@ -90,7 +90,7 @@ class DataProvider implements DataProviderInterface
     /**
      * Bind the match-set query the price statistics must be computed over.
      *
-     * Called by {@see \MageDevGroup\TypesenseSearch\SearchAdapter\Aggregation\Builder} once per
+     * Called by {@see \DmLab\TypesenseSearch\SearchAdapter\Aggregation\Builder} once per
      * request before the price algorithm runs — the Typesense analogue of the ES adapter setting a
      * `QueryContainer` on its aggregation builder.
      *

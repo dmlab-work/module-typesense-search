@@ -1,13 +1,13 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\Test\Unit\SearchAdapter\Aggregation;
+namespace DmLab\TypesenseSearch\Test\Unit\SearchAdapter\Aggregation;
 
-use MageDevGroup\TypesenseSearch\SearchAdapter\Aggregation\Builder;
-use MageDevGroup\TypesenseSearch\SearchAdapter\Dynamic\DataProvider;
+use DmLab\TypesenseSearch\SearchAdapter\Aggregation\Builder;
+use DmLab\TypesenseSearch\SearchAdapter\Dynamic\DataProvider;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Phrase;
 use Magento\Framework\Search\Dynamic\Algorithm\AlgorithmInterface;

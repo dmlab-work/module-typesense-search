@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!--
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 -->
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -12,7 +12,7 @@
          failOnRisky="true"
          cacheDirectory=".phpunit.cache">
     <testsuites>
-        <testsuite name="MageDevGroup_TypesenseSearch unit">
+        <testsuite name="DmLab_TypesenseSearch unit">
             <directory suffix="Test.php">.</directory>
         </testsuite>
     </testsuites>

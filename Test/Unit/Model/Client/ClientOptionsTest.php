@@ -1,16 +1,16 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\Test\Unit\Model\Client;
+namespace DmLab\TypesenseSearch\Test\Unit\Model\Client;
 
-use MageDevGroup\TypesenseCore\Api\ConnectionSettingsInterface;
-use MageDevGroup\TypesenseCore\Exception\ConfigurationException;
-use MageDevGroup\TypesenseCore\Model\Config\Node;
-use MageDevGroup\TypesenseIndexer\Api\EngineCode;
-use MageDevGroup\TypesenseSearch\Model\Client\ClientOptions;
+use DmLab\TypesenseCore\Api\ConnectionSettingsInterface;
+use DmLab\TypesenseCore\Exception\ConfigurationException;
+use DmLab\TypesenseCore\Model\Config\Node;
+use DmLab\TypesenseIndexer\Api\EngineCode;
+use DmLab\TypesenseSearch\Model\Client\ClientOptions;
 use Magento\AdvancedSearch\Model\Client\ClientOptionsInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;

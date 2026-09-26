@@ -1,4 +1,4 @@
-# MageDevGroup_TypesenseSearch
+# DmLab_TypesenseSearch
 
 Registers **Typesense** as a selectable Magento 2 search engine and implements the query side
 (L2 of the Typesense suite): it translates a `Magento\Framework\Search\RequestInterface` into a
@@ -12,8 +12,8 @@ one module serves **quick search, advanced search, category listings and layered
 ## Install
 
 ```bash
-composer require magedevgroup/module-typesense-search   # pulls core + indexer
-bin/magento module:enable MageDevGroup_TypesenseCore MageDevGroup_TypesenseIndexer MageDevGroup_TypesenseSearch
+composer require dmlab/module-typesense-search   # pulls core + indexer
+bin/magento module:enable DmLab_TypesenseCore DmLab_TypesenseIndexer DmLab_TypesenseSearch
 bin/magento setup:upgrade
 ```
 
@@ -44,7 +44,7 @@ semantic) compose instead of colliding. The composite ships empty; add a step by
 `modifiers` array in `di.xml`:
 
 ```xml
-<type name="MageDevGroup\TypesenseSearch\SearchAdapter\Query\QueryModifier">
+<type name="DmLab\TypesenseSearch\SearchAdapter\Query\QueryModifier">
     <arguments>
         <argument name="modifiers" xsi:type="array">
             <item sortOrder="10" name="merchandising" xsi:type="object">Vendor\Module\Query\MyModifier</item>
@@ -62,4 +62,4 @@ Magento 2.4.x · PHP 8.3–8.5 · a running Typesense server (connection owned b
 
 ## License
 
-OSL-3.0 © MageDevGroup.
+OSL-3.0 © DMLab.

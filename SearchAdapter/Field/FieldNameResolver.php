@@ -1,12 +1,12 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\SearchAdapter\Field;
+namespace DmLab\TypesenseSearch\SearchAdapter\Field;
 
-use MageDevGroup\TypesenseIndexer\Api\FieldNameResolverInterface as SchemaFieldNameResolver;
+use DmLab\TypesenseIndexer\Api\FieldNameResolverInterface as SchemaFieldNameResolver;
 use Magento\Customer\Model\Session as CustomerSession;
 use Magento\Framework\Registry;
 use Magento\Store\Model\StoreManagerInterface;

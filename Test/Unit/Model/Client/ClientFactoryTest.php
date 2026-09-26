@@ -1,13 +1,13 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\Test\Unit\Model\Client;
+namespace DmLab\TypesenseSearch\Test\Unit\Model\Client;
 
-use MageDevGroup\TypesenseSearch\Model\Client\ClientFactory;
-use MageDevGroup\TypesenseSearch\Model\Client\TypesenseClientAdapter;
+use DmLab\TypesenseSearch\Model\Client\ClientFactory;
+use DmLab\TypesenseSearch\Model\Client\TypesenseClientAdapter;
 use Magento\AdvancedSearch\Model\Client\ClientInterface;
 use Magento\Framework\ObjectManagerInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;

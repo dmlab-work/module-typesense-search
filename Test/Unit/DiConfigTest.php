@@ -1,10 +1,10 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\Test\Unit;
+namespace DmLab\TypesenseSearch\Test\Unit;
 
 use PHPUnit\Framework\TestCase;
 
@@ -51,7 +51,7 @@ class DiConfigTest extends TestCase
         $items = $this->poolItems('Magento\AdvancedSearch\Model\Client\ClientResolver', 'clientFactories');
 
         self::assertSame(
-            'MageDevGroup\TypesenseSearch\Model\Client\ClientFactory',
+            'DmLab\TypesenseSearch\Model\Client\ClientFactory',
             $items['typesense'] ?? null
         );
     }
@@ -61,7 +61,7 @@ class DiConfigTest extends TestCase
         $items = $this->poolItems('Magento\AdvancedSearch\Model\Client\ClientResolver', 'clientOptions');
 
         self::assertSame(
-            'MageDevGroup\TypesenseSearch\Model\Client\ClientOptions',
+            'DmLab\TypesenseSearch\Model\Client\ClientOptions',
             $items['typesense'] ?? null
         );
     }
@@ -70,14 +70,14 @@ class DiConfigTest extends TestCase
     {
         $items = $this->poolItems('Magento\Search\Model\SearchEngine\Validator', 'engineValidators');
 
-        self::assertSame('MageDevGroup\TypesenseSearch\Setup\Validator', $items['typesense'] ?? null);
+        self::assertSame('DmLab\TypesenseSearch\Setup\Validator', $items['typesense'] ?? null);
     }
 
     public function testInstallConfigRegistered(): void
     {
         $items = $this->poolItems('Magento\Search\Setup\CompositeInstallConfig', 'installConfigList');
 
-        self::assertSame('MageDevGroup\TypesenseSearch\Setup\InstallConfig', $items['typesense'] ?? null);
+        self::assertSame('DmLab\TypesenseSearch\Setup\InstallConfig', $items['typesense'] ?? null);
     }
 
     public function testEngineRegisteredInList(): void
@@ -113,7 +113,7 @@ class DiConfigTest extends TestCase
         $items = $this->poolItems('Magento\Search\Model\AdapterFactory', 'adapters');
 
         self::assertSame(
-            'MageDevGroup\TypesenseSearch\SearchAdapter\Adapter',
+            'DmLab\TypesenseSearch\SearchAdapter\Adapter',
             $items['typesense'] ?? null
         );
     }
@@ -140,13 +140,13 @@ class DiConfigTest extends TestCase
     {
         $handlers = $this->poolItems('Magento\CatalogSearch\Model\Indexer\IndexerHandlerFactory', 'handlers');
         self::assertSame(
-            'MageDevGroup\TypesenseIndexer\Model\Indexer\IndexerHandler',
+            'DmLab\TypesenseIndexer\Model\Indexer\IndexerHandler',
             $handlers['typesense'] ?? null
         );
 
         $structures = $this->poolItems('Magento\CatalogSearch\Model\Indexer\IndexStructureFactory', 'structures');
         self::assertSame(
-            'MageDevGroup\TypesenseIndexer\Model\Indexer\IndexStructure',
+            'DmLab\TypesenseIndexer\Model\Indexer\IndexStructure',
             $structures['typesense'] ?? null
         );
     }
@@ -191,7 +191,7 @@ class DiConfigTest extends TestCase
         $items = $this->poolItems('Magento\Framework\Search\Dynamic\DataProviderFactory', 'dataProviders');
 
         self::assertSame(
-            'MageDevGroup\TypesenseSearch\SearchAdapter\Dynamic\DataProvider',
+            'DmLab\TypesenseSearch\SearchAdapter\Dynamic\DataProvider',
             $items['typesense'] ?? null
         );
     }
@@ -201,7 +201,7 @@ class DiConfigTest extends TestCase
         $items = $this->poolItems('Magento\Framework\Search\Dynamic\IntervalFactory', 'intervals');
 
         self::assertSame(
-            'MageDevGroup\TypesenseSearch\SearchAdapter\Aggregation\Interval',
+            'DmLab\TypesenseSearch\SearchAdapter\Aggregation\Interval',
             $items['typesense'] ?? null
         );
     }
@@ -211,7 +211,7 @@ class DiConfigTest extends TestCase
         $items = $this->poolItems('Magento\AdvancedSearch\Model\SuggestedQueries', 'data');
 
         self::assertSame(
-            'MageDevGroup\TypesenseSearch\Model\DataProvider\Suggestions',
+            'DmLab\TypesenseSearch\Model\DataProvider\Suggestions',
             $items['typesense'] ?? null
         );
     }

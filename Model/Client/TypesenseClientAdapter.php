@@ -1,12 +1,12 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\Model\Client;
+namespace DmLab\TypesenseSearch\Model\Client;
 
-use MageDevGroup\TypesenseCore\Model\Client\HealthChecker;
+use DmLab\TypesenseCore\Model\Client\HealthChecker;
 use Magento\AdvancedSearch\Model\Client\ClientInterface;
 
 /**
@@ -16,7 +16,7 @@ use Magento\AdvancedSearch\Model\Client\ClientInterface;
  * (`ClientResolver::create()->testConnection()`). It lives here, not in core:
  * `ClientInterface` is a Magento search contract, and keeping it out of core is
  * what keeps core framework-only. Connection settings are owned by the
- * {@see \MageDevGroup\TypesenseCore\Api\ConnectionSettingsInterface} contract; the options
+ * {@see \DmLab\TypesenseCore\Api\ConnectionSettingsInterface} contract; the options
  * this receives are informational, so nothing here reparses host/port.
  */
 class TypesenseClientAdapter implements ClientInterface

@@ -1,12 +1,12 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\SearchAdapter\Aggregation;
+namespace DmLab\TypesenseSearch\SearchAdapter\Aggregation;
 
-use MageDevGroup\TypesenseSearch\SearchAdapter\Dynamic\DataProvider;
+use DmLab\TypesenseSearch\SearchAdapter\Dynamic\DataProvider;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Search\Dynamic\Algorithm\Repository as AlgorithmRepository;
 use Magento\Framework\Search\Dynamic\DataProviderFactory;
@@ -36,7 +36,7 @@ use Magento\Framework\Search\Response\Bucket;
  *  - dynamic (`dynamicBucket`, price) → the configured price algorithm (`Auto`/`Improved`/`Manual`,
  *    from `$bucket->getMethod()`) is run over the match set via the framework
  *    {@see AlgorithmRepository}, consuming our engine-resolved {@see DataProviderFactory} data
- *    provider (and its {@see \MageDevGroup\TypesenseSearch\SearchAdapter\Aggregation\Interval}).
+ *    provider (and its {@see \DmLab\TypesenseSearch\SearchAdapter\Aggregation\Interval}).
  *    This mirrors Magento's ES `Aggregation\Builder\Dynamic` so the admin "Price Navigation Step
  *    Calculation" setting is honoured and ranges match OpenSearch on identical data.
  *

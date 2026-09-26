@@ -1,15 +1,15 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\SearchAdapter\Query;
+namespace DmLab\TypesenseSearch\SearchAdapter\Query;
 
-use MageDevGroup\TypesenseIndexer\Api\SearchableFieldsProviderInterface;
-use MageDevGroup\TypesenseSearch\Exception\UnsupportedSearchRequestException;
-use MageDevGroup\TypesenseSearch\SearchAdapter\Field\FieldNameResolver;
-use MageDevGroup\TypesenseSearch\SearchAdapter\StoreResolver;
+use DmLab\TypesenseIndexer\Api\SearchableFieldsProviderInterface;
+use DmLab\TypesenseSearch\Exception\UnsupportedSearchRequestException;
+use DmLab\TypesenseSearch\SearchAdapter\Field\FieldNameResolver;
+use DmLab\TypesenseSearch\SearchAdapter\StoreResolver;
 use Magento\Framework\Search\Request\Filter\BoolExpression as FilterBool;
 use Magento\Framework\Search\Request\Filter\Range as RangeFilter;
 use Magento\Framework\Search\Request\Filter\Term as TermFilter;

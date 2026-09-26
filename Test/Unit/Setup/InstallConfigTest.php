@@ -1,13 +1,13 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\Test\Unit\Setup;
+namespace DmLab\TypesenseSearch\Test\Unit\Setup;
 
-use MageDevGroup\TypesenseIndexer\Model\ConnectionSettings;
-use MageDevGroup\TypesenseSearch\Setup\InstallConfig;
+use DmLab\TypesenseIndexer\Model\ConnectionSettings;
+use DmLab\TypesenseSearch\Setup\InstallConfig;
 use Magento\Framework\App\Config\Storage\WriterInterface;
 use Magento\Search\Setup\InstallConfigInterface;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;

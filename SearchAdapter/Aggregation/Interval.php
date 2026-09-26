@@ -1,14 +1,14 @@
 <?php
 /**
- * Copyright © MageDevGroup. All rights reserved.
+ * Copyright © DMLab. All rights reserved.
  */
 declare(strict_types=1);
 
-namespace MageDevGroup\TypesenseSearch\SearchAdapter\Aggregation;
+namespace DmLab\TypesenseSearch\SearchAdapter\Aggregation;
 
-use MageDevGroup\TypesenseCore\Exception\TypesenseException;
-use MageDevGroup\TypesenseCore\Model\Client\TypesenseClient;
-use MageDevGroup\TypesenseIndexer\Api\IndexNameResolverInterface;
+use DmLab\TypesenseCore\Exception\TypesenseException;
+use DmLab\TypesenseCore\Model\Client\TypesenseClient;
+use DmLab\TypesenseIndexer\Api\IndexNameResolverInterface;
 use Magento\CatalogSearch\Model\Indexer\Fulltext;
 use Magento\Framework\Search\Dynamic\IntervalInterface;
 use Psr\Log\LoggerInterface;
@@ -19,7 +19,7 @@ use Psr\Log\LoggerInterface;
  * The "improved" price algorithm asks an interval to walk the sorted price axis of the current
  * result set — {@see self::load()} for a window, {@see self::loadPrevious()} / {@see self::loadNext()}
  * to slide it. Each call is a price-sorted Typesense search constrained to the **match set** (the same
- * `q` / `query_by` / `filter_by` the main search ran, {@see \MageDevGroup\TypesenseSearch\SearchAdapter\
+ * `q` / `query_by` / `filter_by` the main search ran, {@see \DmLab\TypesenseSearch\SearchAdapter\
  * Dynamic\DataProvider}), reading back only the `price` field. Constraining to the match-set query
  * rather than the returned page's ids is what keeps the slider consistent with ES over a paginated
  * result set. The Typesense `offset`/`limit` and `:>=` / `:<` filter operators replace ES's
