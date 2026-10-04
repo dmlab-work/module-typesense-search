@@ -63,7 +63,7 @@ class RegistrationTest extends TestCase
 
         self::assertSame('dmlab/module-typesense-search', $composer['name']);
         self::assertSame('OSL-3.0', $composer['license']);
-        self::assertSame('0.1.0', $composer['version']);
+        self::assertSame('0.1.1', $composer['version']);
         self::assertSame('magento2-module', $composer['type']);
 
         self::assertArrayHasKey('dmlab/module-typesense-core', $composer['require']);
