@@ -66,3 +66,18 @@ try {
 } catch (\LogicException $e) {
     // Already registered by the Composer autoloader — nothing to do.
 }
+
+// Generate Factory/Proxy/ExtensionAttributes classes on demand when Magento's generated/ code is absent.
+$generatedCodeAutoloader = new \Magento\Framework\TestFramework\Unit\Autoloader\GeneratedClassesAutoloader(
+    [
+        new \Magento\Framework\TestFramework\Unit\Autoloader\ExtensionAttributesGenerator(),
+        new \Magento\Framework\TestFramework\Unit\Autoloader\ExtensionAttributesInterfaceGenerator(),
+        new \Magento\Framework\TestFramework\Unit\Autoloader\FactoryGenerator(),
+        new \Magento\Framework\TestFramework\Unit\Autoloader\ProxyGenerator(),
+    ],
+    new \Magento\Framework\Code\Generator\Io(
+        new \Magento\Framework\Filesystem\Driver\File(),
+        sys_get_temp_dir() . '/dmlab-unit-generated'
+    )
+);
+spl_autoload_register([$generatedCodeAutoloader, 'load']);

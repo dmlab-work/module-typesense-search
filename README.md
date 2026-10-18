@@ -1,5 +1,8 @@
 # DmLab_TypesenseSearch
 
+[![CI](https://github.com/dmlab-work/module-typesense-search/actions/workflows/ci.yml/badge.svg)](https://github.com/dmlab-work/module-typesense-search/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/dmlab-work/module-typesense-search/graph/badge.svg)](https://codecov.io/gh/dmlab-work/module-typesense-search) [![Packagist](https://img.shields.io/packagist/v/dmlab/module-typesense-search)](https://packagist.org/packages/dmlab/module-typesense-search) [![Downloads](https://img.shields.io/packagist/dt/dmlab/module-typesense-search)](https://packagist.org/packages/dmlab/module-typesense-search)
+![License](https://img.shields.io/badge/license-OSL--3.0-green) ![Magento](https://img.shields.io/badge/Magento-2.4-orange) ![PHP](https://img.shields.io/badge/PHP-8.3--8.5-blue)
+
 Registers **Typesense** as a selectable Magento 2 search engine and implements the query side
 (L2 of the Typesense suite): it translates a `Magento\Framework\Search\RequestInterface` into a
 Typesense query and returns matched product IDs plus aggregations. A free, uncapped drop-in
