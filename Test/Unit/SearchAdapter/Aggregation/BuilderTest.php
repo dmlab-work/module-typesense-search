@@ -1,6 +1,7 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 declare(strict_types=1);
 
@@ -8,6 +9,8 @@ namespace DmLab\TypesenseSearch\Test\Unit\SearchAdapter\Aggregation;
 
 use DmLab\TypesenseSearch\SearchAdapter\Aggregation\Builder;
 use DmLab\TypesenseSearch\SearchAdapter\Dynamic\DataProvider;
+use DmLab\TypesenseSearch\SearchAdapter\Schema\CollectionSchema;
+use DmLab\TypesenseSearch\SearchAdapter\Schema\DroppedFieldLogger;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Phrase;
 use Magento\Framework\Search\Dynamic\Algorithm\AlgorithmInterface;
@@ -34,16 +37,20 @@ class BuilderTest extends TestCase
     private EntityStorageFactory $entityStorageFactory;
     /** @var DataProviderFactory */
     private DataProviderFactory $dataProviderFactory;
+    /** @var DroppedFieldLogger */
+    private DroppedFieldLogger $droppedFieldLogger;
 
     protected function setUp(): void
     {
         $this->algorithmRepository = $this->createMock(AlgorithmRepository::class);
         $this->entityStorageFactory = $this->createMock(EntityStorageFactory::class);
         $this->dataProviderFactory = $this->createMock(DataProviderFactory::class);
+        $this->droppedFieldLogger = $this->createMock(DroppedFieldLogger::class);
         $this->builder = new Builder(
             $this->algorithmRepository,
             $this->entityStorageFactory,
-            $this->dataProviderFactory
+            $this->dataProviderFactory,
+            $this->droppedFieldLogger
         );
     }
 
@@ -175,6 +182,66 @@ class BuilderTest extends TestCase
         $this->assertSame('Nike', $values[0]->getValue());
         $this->assertSame(['value' => 'Nike', 'count' => 11], $values[0]->getMetrics());
         $this->assertSame(['value' => 'Puma', 'count' => 4], $values[1]->getMetrics());
+    }
+
+    public function testIntFacetValuesAreTypedAsIntForStrictGraphQlCategoryMatch(): void
+    {
+        $schema = new CollectionSchema([['name' => 'category_ids', 'type' => 'int32[]', 'facet' => true]]);
+        $aggregation = $this->builder->build(
+            $this->request([$this->termBucket('category_bucket', 'category_ids')]),
+            ['facet_counts' => [['field_name' => 'category_ids', 'counts' => [['value' => '21', 'count' => 5]]]]],
+            [],
+            0,
+            $schema
+        );
+
+        $value = $aggregation->getBucket('category_bucket')->getValues()[0];
+        self::assertSame(21, $value->getValue());
+        self::assertSame(['value' => 21, 'count' => 5], $value->getMetrics());
+    }
+
+    public function testLegacyBoolFacetValuesAreTypedAsOneOrZero(): void
+    {
+        $schema = new CollectionSchema([['name' => 'eco_collection', 'type' => 'bool', 'facet' => true]]);
+        $aggregation = $this->builder->build(
+            $this->request([$this->termBucket('eco_bucket', 'eco_collection')]),
+            ['facet_counts' => [['field_name' => 'eco_collection', 'counts' => [
+                ['value' => 'true', 'count' => 3],
+                ['value' => 'false', 'count' => 7],
+            ]]]],
+            [],
+            0,
+            $schema
+        );
+
+        $values = $aggregation->getBucket('eco_bucket')->getValues();
+        self::assertSame(1, $values[0]->getValue());
+        self::assertSame(['value' => 1, 'count' => 3], $values[0]->getMetrics());
+        self::assertSame(0, $values[1]->getValue());
+        self::assertSame(['value' => 0, 'count' => 7], $values[1]->getMetrics());
+    }
+
+    public function testStringAndUnknownFacetValuesStayStrings(): void
+    {
+        $schema = new CollectionSchema([['name' => 'brand', 'type' => 'string', 'facet' => true]]);
+        $request = $this->request([
+            $this->termBucket('brand_bucket', 'brand'),
+            $this->termBucket('size_bucket', 'size'),
+        ]);
+        $raw = ['facet_counts' => [
+            ['field_name' => 'brand', 'counts' => [['value' => '42', 'count' => 1]]],
+            ['field_name' => 'size', 'counts' => [['value' => '7', 'count' => 2]]],
+        ]];
+
+        $typed = $this->builder->build($request, $raw, [], 0, $schema);
+        self::assertSame('42', $typed->getBucket('brand_bucket')->getValues()[0]->getValue());
+        self::assertSame('7', $typed->getBucket('size_bucket')->getValues()[0]->getValue());
+
+        $untyped = $this->builder->build(
+            $this->request([$this->termBucket('category_bucket', 'category_ids')]),
+            ['facet_counts' => [['field_name' => 'category_ids', 'counts' => [['value' => '21', 'count' => 5]]]]]
+        );
+        self::assertSame('21', $untyped->getBucket('category_bucket')->getValues()[0]->getValue());
     }
 
     public function testDynamicPriceBucketRunsConfiguredAlgorithmIntoRangeValues(): void
@@ -326,6 +393,46 @@ class BuilderTest extends TestCase
         );
 
         $this->assertSame([], $aggregation->getBucket('brand_bucket')->getValues());
+    }
+
+    public function testAddAggregationsSkipsFieldsTheSchemaDoesNotFacet(): void
+    {
+        $logged = [];
+        $this->droppedFieldLogger->expects($this->exactly(2))->method('log')
+            ->willReturnCallback(static function (string $alias, string $field) use (&$logged): void {
+                $logged[] = $alias . ':' . $field;
+            });
+        $schema = new CollectionSchema([
+            ['name' => 'color', 'type' => 'int32[]', 'facet' => true],
+            ['name' => 'description', 'type' => 'string'],
+        ], 'alias_1');
+        $request = $this->request([
+            $this->termBucket('color_bucket', 'color'),
+            $this->termBucket('description_bucket', 'description'),
+            $this->termBucket('activity_bucket', 'activity'),
+        ]);
+
+        $params = $this->builder->addAggregations(['q' => '*'], $request, $schema);
+        self::assertSame('color', $params['facet_by']);
+        self::assertSame(['alias_1:description', 'alias_1:activity'], $logged);
+
+        $aggregation = $this->builder->build($request, ['facet_counts' => [
+            ['field_name' => 'color', 'counts' => [['value' => '49', 'count' => 2]]],
+        ]]);
+        self::assertCount(1, $aggregation->getBucket('color_bucket')->getValues());
+        self::assertSame([], $aggregation->getBucket('description_bucket')->getValues());
+        self::assertSame([], $aggregation->getBucket('activity_bucket')->getValues());
+    }
+
+    public function testAddAggregationsWithOnlyUnfacetedFieldsLeavesParamsUntouched(): void
+    {
+        $params = $this->builder->addAggregations(
+            ['q' => '*'],
+            $this->request([$this->termBucket('description_bucket', 'description')]),
+            new CollectionSchema([['name' => 'description', 'type' => 'string']])
+        );
+
+        self::assertSame(['q' => '*'], $params);
     }
 
     public function testNoBucketsYieldsEmptyAggregation(): void

@@ -1,6 +1,7 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 declare(strict_types=1);
 
@@ -12,6 +13,8 @@ use DmLab\TypesenseIndexer\Api\SearchableFieldsProviderInterface;
 use DmLab\TypesenseIndexer\Api\EngineCode;
 use DmLab\TypesenseIndexer\Api\IndexNameResolverInterface;
 use DmLab\TypesenseSearch\Model\DataProvider\Suggestions;
+use DmLab\TypesenseSearch\SearchAdapter\Schema\CollectionSchema;
+use DmLab\TypesenseSearch\SearchAdapter\Schema\SchemaReader;
 use Magento\AdvancedSearch\Model\SuggestedQueriesInterface;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\Search\EngineResolverInterface;
@@ -42,6 +45,8 @@ class SuggestionsTest extends TestCase
     private $indexNameResolver;
     /** @var StoreManagerInterface&MockObject */
     private $storeManager;
+    /** @var SchemaReader&MockObject */
+    private $schemaReader;
     /** @var LoggerInterface&MockObject */
     private $logger;
 
@@ -58,6 +63,7 @@ class SuggestionsTest extends TestCase
         $store = $this->createMock(StoreInterface::class);
         $store->method('getId')->willReturn(1);
         $this->storeManager->method('getStore')->willReturn($store);
+        $this->schemaReader = $this->createMock(SchemaReader::class);
         $this->logger = $this->createMock(LoggerInterface::class);
 
         $this->searchableFields->method('get')->willReturn(['name' => 5, 'sku' => 3]);
@@ -78,6 +84,7 @@ class SuggestionsTest extends TestCase
             $this->searchableFields,
             $this->indexNameResolver,
             $this->storeManager,
+            $this->schemaReader,
             $this->logger
         );
     }
@@ -123,25 +130,106 @@ class SuggestionsTest extends TestCase
         self::assertSame([], $this->suggestions()->getItems($this->query('shoes')));
     }
 
-    public function testMapsHitsToSuggestionItems(): void
+    /**
+     * A search response whose hits highlight the given tokens, one hit per token list.
+     *
+     * @param string[][] $perHit
+     */
+    private static function hits(array ...$perHit): array
+    {
+        return ['hits' => array_map(
+            static fn (array $tokens): array => [
+                'document' => ['name' => 'irrelevant'],
+                'highlights' => [['field' => 'name', 'matched_tokens' => $tokens, 'snippet' => '']],
+            ],
+            $perHit
+        )];
+    }
+
+    public function testTypoIsCorrectedFromMatchedTokens(): void
     {
         $this->configure(true, 5, false);
-        $this->client->expects(self::once())->method('request')->willReturn([
-            'hits' => [
-                ['document' => ['name' => 'Blue Shoes']],
-                ['document' => ['name' => 'Red Shoes']],
-            ],
-        ]);
+        $this->client->expects(self::once())->method('request')->willReturn(self::hits(['Jacket']));
 
-        $items = $this->suggestions()->getItems($this->query('shoes'));
+        $items = $this->suggestions()->getItems($this->query('jcket'));
 
-        self::assertCount(2, $items);
-        self::assertSame('Blue Shoes', $items[0]->getQueryText());
-        self::assertSame('Red Shoes', $items[1]->getQueryText());
+        self::assertCount(1, $items);
+        self::assertSame('jacket', $items[0]->getQueryText());
         self::assertNull($items[0]->getResultsCount());
     }
 
-    public function testSearchUsesQueryTextAndProviderFields(): void
+    public function testUnmatchedTokenIsDropped(): void
+    {
+        $this->configure(true, 5, false);
+        $this->client->method('request')->willReturn(self::hits(['Jacket']));
+
+        $items = $this->suggestions()->getItems($this->query('red jcket'));
+
+        self::assertCount(1, $items);
+        self::assertSame('jacket', $items[0]->getQueryText());
+    }
+
+    public function testArrayFieldMatchedTokensCount(): void
+    {
+        $this->configure(true, 5, false);
+        $this->client->method('request')->willReturn(['hits' => [[
+            'document' => ['name' => 'irrelevant'],
+            'highlights' => [
+                ['field' => 'color_value', 'matched_tokens' => [['Blue']], 'snippets' => ['']],
+                ['field' => 'name', 'matched_tokens' => ['Jacket'], 'snippet' => ''],
+            ],
+        ]]]);
+
+        $items = $this->suggestions()->getItems($this->query('blue jcket'));
+
+        self::assertSame('blue jacket', $items[0]->getQueryText());
+    }
+
+    public function testNonAsciiTypoIsMeasuredInCharacters(): void
+    {
+        $this->configure(true, 5, false);
+        $this->client->method('request')->willReturn(self::hits(['Куртка']));
+
+        $items = $this->suggestions()->getItems($this->query('крутка'));
+
+        self::assertSame('куртка', $items[0]->getQueryText());
+    }
+
+    public function testMatchedTokensAreCollectedAcrossHits(): void
+    {
+        $this->configure(true, 5, false);
+        $this->client->method('request')->willReturn(self::hits(['Red'], ['Jacket', 'red']));
+
+        $items = $this->suggestions()->getItems($this->query('Red  jcket'));
+
+        self::assertSame('red jacket', $items[0]->getQueryText());
+    }
+
+    public function testExactQueryReturnsNoItem(): void
+    {
+        $this->configure(true, 5, true);
+        $this->client->expects(self::once())->method('request')->willReturn(self::hits(['Jacket']));
+
+        self::assertSame([], $this->suggestions()->getItems($this->query('Jacket')));
+    }
+
+    public function testNoHitsReturnsNoItem(): void
+    {
+        $this->configure(true, 5, true);
+        $this->client->expects(self::once())->method('request')->willReturn(['hits' => []]);
+
+        self::assertSame([], $this->suggestions()->getItems($this->query('jcket')));
+    }
+
+    public function testEmptyQueryMakesNoRequest(): void
+    {
+        $this->configure(true, 5, false);
+        $this->client->expects(self::never())->method('request');
+
+        self::assertSame([], $this->suggestions()->getItems($this->query('   ')));
+    }
+
+    public function testSearchSendsVisibilityFilterAndIncludeFields(): void
     {
         $this->configure(true, 5, false);
         $this->client->expects(self::once())->method('request')->with(
@@ -149,79 +237,89 @@ class SuggestionsTest extends TestCase
             '/collections/typesense_catalogsearch_fulltext_1/documents/search',
             null,
             [
-                'q' => 'shoes',
+                'q' => 'jcket',
                 'query_by' => 'name,sku',
-                'per_page' => 5,
+                'include_fields' => 'name,sku',
+                'filter_by' => 'visibility:=[3,4]',
+                'per_page' => 10,
                 'page' => 1,
             ]
         )->willReturn(['hits' => []]);
 
-        self::assertSame([], $this->suggestions()->getItems($this->query('shoes')));
+        self::assertSame([], $this->suggestions()->getItems($this->query('jcket')));
     }
 
-    public function testCappedByConfiguredCount(): void
+    public function testFieldsMissingFromSchemaAreDropped(): void
     {
-        $this->configure(true, 2, false);
-        $this->client->method('request')->willReturn([
-            'hits' => [
-                ['document' => ['name' => 'One']],
-                ['document' => ['name' => 'Two']],
-                ['document' => ['name' => 'Three']],
-            ],
-        ]);
+        $this->configure(true, 5, false);
+        $this->schemaReader->method('get')->with('typesense_catalogsearch_fulltext_1')
+            ->willReturn(new CollectionSchema([['name' => 'name', 'type' => 'string']]));
+        $this->client->expects(self::once())->method('request')->with(
+            'GET',
+            self::anything(),
+            null,
+            self::callback(
+                static fn (array $params): bool => $params['query_by'] === 'name'
+                    && $params['include_fields'] === 'name'
+            )
+        )->willReturn(['hits' => []]);
 
-        $items = $this->suggestions()->getItems($this->query('x'));
-
-        self::assertCount(2, $items);
-        self::assertSame('One', $items[0]->getQueryText());
-        self::assertSame('Two', $items[1]->getQueryText());
+        self::assertSame([], $this->suggestions()->getItems($this->query('jcket')));
     }
 
-    public function testDuplicatesAndEmptyValuesAreSkipped(): void
+    public function testNoDeclaredSearchableFieldsMakesNoRequest(): void
     {
-        $this->configure(true, 10, false);
-        $this->client->method('request')->willReturn([
-            'hits' => [
-                ['document' => ['name' => 'Shoe']],
-                ['document' => ['name' => 'Shoe']],
-                ['document' => ['name' => '   ']],
-                ['document' => ['sku' => 'no-name-field']],
-                ['document' => ['name' => 'Boot']],
-            ],
-        ]);
+        $this->configure(true, 5, false);
+        $this->schemaReader->method('get')->willReturn(new CollectionSchema([]));
+        $this->client->expects(self::never())->method('request');
 
-        $items = $this->suggestions()->getItems($this->query('x'));
-
-        self::assertCount(2, $items);
-        self::assertSame('Shoe', $items[0]->getQueryText());
-        self::assertSame('Boot', $items[1]->getQueryText());
+        self::assertSame([], $this->suggestions()->getItems($this->query('jcket')));
     }
 
-    public function testResultsCountEnabledAttachesPerSuggestionFrequency(): void
+    public function testResultsCountRunsOneCountSearchForCorrection(): void
     {
         $this->configure(true, 5, true);
-        $this->client->method('request')->willReturnOnConsecutiveCalls(
-            ['hits' => [['document' => ['name' => 'Blue Shoes']]]],
-            ['found' => 42]
+        $calls = [];
+        $this->client->expects(self::exactly(2))->method('request')->willReturnCallback(
+            static function (string $method, string $path, ?array $body, array $params) use (&$calls): array {
+                $calls[] = $params;
+
+                return count($calls) === 1 ? self::hits(['Jacket'], ['jacket']) : ['found' => 42];
+            }
         );
 
-        $items = $this->suggestions()->getItems($this->query('shoes'));
+        $items = $this->suggestions()->getItems($this->query('jcket'));
 
-        self::assertCount(1, $items);
         self::assertSame(42, $items[0]->getResultsCount());
+        self::assertSame(
+            ['q' => 'jacket', 'query_by' => 'name,sku', 'filter_by' => 'visibility:=[3,4]', 'per_page' => 0],
+            $calls[1]
+        );
     }
 
     public function testResultsCountFlagIsHonoured(): void
     {
-        // Count-results disabled: only the initial hits search runs, no per-suggestion count query.
         $this->configure(true, 5, false);
-        $this->client->expects(self::once())->method('request')->willReturn([
-            'hits' => [['document' => ['name' => 'Blue Shoes']]],
-        ]);
+        $this->client->expects(self::once())->method('request')->willReturn(self::hits(['Jacket']));
 
-        $items = $this->suggestions()->getItems($this->query('shoes'));
+        $items = $this->suggestions()->getItems($this->query('jcket'));
 
         self::assertNull($items[0]->getResultsCount());
+    }
+
+    public function testCountSearchFailureKeepsSuggestionWithZeroCount(): void
+    {
+        $this->configure(true, 5, true);
+        $this->client->method('request')->willReturnOnConsecutiveCalls(
+            self::hits(['Jacket']),
+            self::throwException(new TypesenseException('boom'))
+        );
+        $this->logger->expects(self::once())->method('critical');
+
+        $items = $this->suggestions()->getItems($this->query('jcket'));
+
+        self::assertSame('jacket', $items[0]->getQueryText());
+        self::assertSame(0, $items[0]->getResultsCount());
     }
 
     public function testTypesenseFailureDegradesToNoItems(): void
@@ -235,8 +333,7 @@ class SuggestionsTest extends TestCase
 
     public function testNoSearchableFieldsReturnsNoItems(): void
     {
-        $this->engineResolver->method('getCurrentSearchEngine')->willReturn(EngineCode::ENGINE);
-        $this->scopeConfig->method('isSetFlag')->willReturn(true);
+        $this->configure(true, 5, false);
         $fields = $this->createMock(SearchableFieldsProviderInterface::class);
         $fields->method('get')->willReturn([]);
         $this->client->expects(self::never())->method('request');
@@ -249,6 +346,7 @@ class SuggestionsTest extends TestCase
             $fields,
             $this->indexNameResolver,
             $this->storeManager,
+            $this->schemaReader,
             $this->logger
         );
 

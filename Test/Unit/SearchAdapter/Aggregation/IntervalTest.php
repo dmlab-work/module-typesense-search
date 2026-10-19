@@ -1,6 +1,7 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 declare(strict_types=1);
 
@@ -90,6 +91,40 @@ class IntervalTest extends TestCase
 
         $matchQuery = ['q' => 'shoes', 'query_by' => 'name,sku', 'filter_by' => 'in_stock:=true'];
         $this->assertSame([], $this->interval($matchQuery)->load(5));
+    }
+
+    public function testLoadForwardsModifierMatchKeysAndAndsTheMatchFilter(): void
+    {
+        $captured = [];
+        $this->client->expects($this->exactly(2))
+            ->method('request')
+            ->willReturnCallback(function ($method, $path, $body, array $params) use (&$captured) {
+                $captured[] = $params;
+
+                return $this->hits([10]) + ['found' => 3];
+            });
+
+        $interval = $this->interval([
+            'q' => 'jacket',
+            'query_by' => 'name',
+            'filter_by' => 'category_ids:=5',
+            'vector_query' => 'embedding:([], k:10)',
+            'synonym_sets' => 'alias_synonyms',
+            'hidden_hits' => '7',
+            'pinned_hits' => '5:1',
+        ]);
+        $this->assertSame([10.0], $interval->load(1, 0, 10, 20));
+        $interval->loadPrevious(10, 1, 5);
+
+        foreach ($captured as $params) {
+            self::assertSame('jacket', $params['q']);
+            self::assertSame('embedding:([], k:10)', $params['vector_query']);
+            self::assertSame('alias_synonyms', $params['synonym_sets']);
+            self::assertSame('7', $params['hidden_hits']);
+            self::assertSame('5:1', $params['pinned_hits']);
+            self::assertStringStartsWith('(category_ids:=5) && price:>=', $params['filter_by']);
+        }
+        self::assertSame(0, $captured[1]['per_page']);
     }
 
     public function testLoadWithoutBoundsUsesEmptyRange(): void

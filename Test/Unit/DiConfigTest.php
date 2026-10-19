@@ -1,6 +1,7 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 declare(strict_types=1);
 
@@ -14,6 +15,7 @@ use PHPUnit\Framework\TestCase;
  */
 class DiConfigTest extends TestCase
 {
+    /** @var \SimpleXMLElement */
     private \SimpleXMLElement $di;
 
     protected function setUp(): void
@@ -73,11 +75,28 @@ class DiConfigTest extends TestCase
         self::assertSame('DmLab\TypesenseSearch\Setup\Validator', $items['typesense'] ?? null);
     }
 
-    public function testInstallConfigRegistered(): void
+    public function testNoInstallConfigRegistered(): void
     {
-        $items = $this->poolItems('Magento\Search\Setup\CompositeInstallConfig', 'installConfigList');
+        foreach ($this->di->type as $type) {
+            self::assertNotSame('Magento\Search\Setup\CompositeInstallConfig', (string)$type['name']);
+        }
+    }
 
-        self::assertSame('DmLab\TypesenseSearch\Setup\InstallConfig', $items['typesense'] ?? null);
+    public function testTestConnectionButtonDeclared(): void
+    {
+        $xml = simplexml_load_file(dirname(__DIR__, 2) . '/etc/adminhtml/system.xml');
+        self::assertNotFalse($xml);
+
+        $fields = $xml->xpath(
+            "/config/system/section[@id='catalog']/group[@id='search']/field[@id='typesense_test_connect_wizard']"
+        );
+        self::assertCount(1, $fields);
+        self::assertSame(
+            'DmLab\TypesenseSearch\Block\Adminhtml\System\Config\TestConnection',
+            (string)$fields[0]->frontend_model
+        );
+        self::assertSame('Test Connection', (string)$fields[0]->button_label);
+        self::assertSame('typesense', (string)$fields[0]->depends->field);
     }
 
     public function testEngineRegisteredInList(): void
@@ -216,6 +235,48 @@ class DiConfigTest extends TestCase
         );
     }
 
+    public function testResponseProcessorPoolRegisteredEmpty(): void
+    {
+        $found = false;
+        foreach ($this->di->type as $type) {
+            if ((string)$type['name'] !== 'DmLab\TypesenseSearch\SearchAdapter\Response\ResponseProcessor') {
+                continue;
+            }
+            foreach ($type->arguments->argument as $arg) {
+                if ((string)$arg['name'] === 'processors') {
+                    $found = true;
+                    self::assertSame('array', (string)$arg->attributes('xsi', true)['type']);
+                    self::assertCount(0, $arg->item);
+                }
+            }
+        }
+
+        self::assertTrue($found);
+    }
+
+    public function testEsAttributePluginNeutralized(): void
+    {
+        $target = 'Magento\Elasticsearch\Model\Indexer\Fulltext\Plugin\Category\Product\Attribute';
+        $plugin = null;
+        foreach ($this->di->type as $type) {
+            if ((string)$type['name'] !== $target) {
+                continue;
+            }
+            foreach ($type->plugin as $candidate) {
+                if ((string)$candidate['name'] === 'dmlab_typesense_search_neutralise_es_attribute') {
+                    $plugin = $candidate;
+                }
+            }
+        }
+
+        self::assertNotNull($plugin);
+        self::assertSame(
+            'DmLab\TypesenseSearch\Plugin\Elasticsearch\AttributeIndexerNeutralizePlugin',
+            (string)$plugin['type']
+        );
+        self::assertNotSame('true', (string)$plugin['disabled']);
+    }
+
     public function testEsInternalProxiesNotRegistered(): void
     {
         foreach ($this->di->type as $type) {
@@ -230,7 +291,7 @@ class DiConfigTest extends TestCase
         }
     }
 
-    public function testSearchEngineDeclaresSynonymsUnsupported(): void
+    public function testSearchEngineDeclaresSynonymsSupported(): void
     {
         $xml = simplexml_load_file(dirname(__DIR__, 2) . '/etc/search_engine.xml');
         self::assertNotFalse($xml);
@@ -250,6 +311,6 @@ class DiConfigTest extends TestCase
         }
 
         self::assertSame('typesense', $engineName);
-        self::assertSame('false', $synonyms);
+        self::assertSame('true', $synonyms);
     }
 }

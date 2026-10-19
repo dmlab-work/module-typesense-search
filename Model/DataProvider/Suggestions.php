@@ -1,6 +1,7 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 declare(strict_types=1);
 
@@ -11,6 +12,7 @@ use DmLab\TypesenseCore\Model\Client\TypesenseClient;
 use DmLab\TypesenseIndexer\Api\SearchableFieldsProviderInterface;
 use DmLab\TypesenseIndexer\Api\EngineCode;
 use DmLab\TypesenseIndexer\Api\IndexNameResolverInterface;
+use DmLab\TypesenseSearch\SearchAdapter\Schema\SchemaReader;
 use Magento\AdvancedSearch\Model\SuggestedQueriesInterface;
 use Magento\CatalogSearch\Model\Indexer\Fulltext;
 use Magento\Framework\App\Config\ScopeConfigInterface;
@@ -23,29 +25,28 @@ use Magento\Store\Model\StoreManagerInterface;
 use Psr\Log\LoggerInterface;
 
 /**
- * Search suggestions backed by Typesense's typo-tolerant search.
+ * "Did you mean" backed by Typesense's typo-tolerant search.
  *
- * Magento's ES {@see \Magento\Elasticsearch\Model\DataProvider\Base\Suggestions} builds a phrase
- * suggester query — an ES-only construct Typesense has no equivalent for. Typesense instead surfaces
- * suggestions through typo tolerance on a normal search: the top typo-corrected hits' searchable
- * text *are* the suggested queries. This provider runs one such search against the store's collection
- * **alias** (owned by `typesense-indexer` — never rebuilt here), reads the configurable suggestion
- * field off each hit, dedupes and caps by `catalog/search/search_suggestion_count`, and — when
- * `search_suggestion_count_results_enabled` is on — attaches each suggestion's own hit count.
- *
- * Registered into {@see \Magento\AdvancedSearch\Model\SuggestedQueries::data} under `typesense`;
- * leaving the engine unregistered in that pool is not an option (the feature would fatal).
- *
- * Honest gating: suggestions are produced only when Typesense is the active engine and
- * `catalog/search/search_suggestion_enabled` is set. Any Typesense failure degrades to no items
- * (logged) so the storefront search box never fatals.
+ * ES uses a phrase suggester Typesense lacks; instead one search runs against the store alias and the
+ * hits' `matched_tokens` rebuild a corrected query. Returns at most one item, only for a changed query.
+ * Gated on the active engine and `search_suggestion_enabled`; Typesense failures degrade to no items.
  */
 class Suggestions implements SuggestedQueriesInterface
 {
     /**
-     * Document field whose value becomes the suggested query text; product name by default.
+     * Hits scanned for matched tokens.
      */
-    private const DEFAULT_SUGGESTION_FIELD = 'name';
+    private const HITS_PER_PAGE = 10;
+
+    /**
+     * Storefront-visible products only: "Search" and "Catalog, Search".
+     */
+    private const VISIBILITY_FILTER = 'visibility:=[3,4]';
+
+    /**
+     * Largest edit distance between a query token and a matched token.
+     */
+    private const MAX_DISTANCE = 2;
 
     /**
      * @param ScopeConfigInterface $scopeConfig native suggestion config paths
@@ -55,8 +56,8 @@ class Suggestions implements SuggestedQueriesInterface
      * @param SearchableFieldsProviderInterface $searchableFieldsProvider indexer-owned `query_by` seam
      * @param IndexNameResolverInterface $indexNameResolver indexer-owned alias-name authority
      * @param StoreManagerInterface $storeManager resolves the storefront store scope
+     * @param SchemaReader $schemaReader drops fields the alias collection does not declare yet
      * @param LoggerInterface $logger
-     * @param string $suggestionField document field read off each hit for the suggestion text
      */
     public function __construct(
         private readonly ScopeConfigInterface $scopeConfig,
@@ -66,8 +67,8 @@ class Suggestions implements SuggestedQueriesInterface
         private readonly SearchableFieldsProviderInterface $searchableFieldsProvider,
         private readonly IndexNameResolverInterface $indexNameResolver,
         private readonly StoreManagerInterface $storeManager,
-        private readonly LoggerInterface $logger,
-        private readonly string $suggestionField = self::DEFAULT_SUGGESTION_FIELD
+        private readonly SchemaReader $schemaReader,
+        private readonly LoggerInterface $logger
     ) {
     }
 
@@ -78,53 +79,60 @@ class Suggestions implements SuggestedQueriesInterface
      */
     public function getItems(QueryInterface $query)
     {
-        if (!$this->isSuggestionsAllowed()) {
+        if (!$this->isSuggestionsAllowed() || $this->getSearchSuggestionsCount() <= 0) {
+            return [];
+        }
+
+        $queryText = trim((string)$query->getQueryText());
+        $tokens = $this->tokenize($queryText);
+        if ($tokens === []) {
             return [];
         }
 
         $storeId = (int)$this->storeManager->getStore()->getId();
-        $queryBy = array_keys($this->searchableFieldsProvider->get($storeId));
-        if ($queryBy === []) {
-            return [];
-        }
-
-        $limit = $this->getSearchSuggestionsCount();
-        if ($limit <= 0) {
-            return [];
-        }
-
-        $countResults = $this->isResultsCountEnabled();
         $alias = $this->indexNameResolver->getAliasName(Fulltext::INDEXER_ID, $storeId);
-        $queryBy = implode(',', $queryBy);
-
-        $hits = $this->search($alias, (string)$query->getQueryText(), $queryBy, $limit);
-
-        $items = [];
-        $seen = [];
-        foreach ($hits as $hit) {
-            $text = $hit['document'][$this->suggestionField] ?? null;
-            if (!is_scalar($text)) {
-                continue;
-            }
-            $text = trim((string)$text);
-            if ($text === '' || isset($seen[$text])) {
-                continue;
-            }
-            $seen[$text] = true;
-
-            $items[] = $this->queryResultFactory->create(
-                [
-                    'queryText' => $text,
-                    'resultsCount' => $countResults ? $this->frequency($alias, $text, $queryBy) : null,
-                ]
-            );
-
-            if (count($items) >= $limit) {
-                break;
-            }
+        $fields = array_keys($this->searchableFieldsProvider->get($storeId));
+        // Typesense 404s on an undeclared field (e.g. `<code>_value` before the collection is reindexed).
+        $schema = $this->schemaReader->get($alias);
+        if ($schema !== null) {
+            $fields = array_filter($fields, static fn ($field): bool => $schema->has((string)$field));
+        }
+        $fields = implode(',', $fields);
+        if ($fields === '') {
+            return [];
         }
 
-        return $items;
+        $path = '/collections/' . $alias . '/documents/search';
+
+        $response = $this->search($path, [
+            'q' => $queryText,
+            'query_by' => $fields,
+            'include_fields' => $fields,
+            'filter_by' => self::VISIBILITY_FILTER,
+            'per_page' => self::HITS_PER_PAGE,
+            'page' => 1,
+        ]);
+        if ($response === null) {
+            return [];
+        }
+
+        $correction = $this->correct($tokens, $this->matchedTokens($response['hits'] ?? []));
+        if ($correction === null) {
+            return [];
+        }
+
+        $count = null;
+        if ($this->isResultsCountEnabled()) {
+            $countResponse = $this->search($path, [
+                'q' => $correction,
+                'query_by' => $fields,
+                'filter_by' => self::VISIBILITY_FILTER,
+                'per_page' => 0,
+            ]);
+            $count = (int)($countResponse['found'] ?? 0);
+        }
+
+        return [$this->queryResultFactory->create(['queryText' => $correction, 'resultsCount' => $count])];
     }
 
     /**
@@ -151,7 +159,7 @@ class Suggestions implements SuggestedQueriesInterface
     }
 
     /**
-     * Configured maximum number of suggestions to return.
+     * Configured maximum number of suggestions; 0 disables them.
      */
     private function getSearchSuggestionsCount(): int
     {
@@ -162,67 +170,116 @@ class Suggestions implements SuggestedQueriesInterface
     }
 
     /**
-     * Run the typo-tolerant search against the alias and return its hits, empty on failure.
+     * Lowercased whitespace-separated query tokens.
      *
-     * @param string $alias collection alias to query
-     * @param string $queryText raw user query
-     * @param string $queryBy comma-joined searchable fields
-     * @param int $limit
-     * @return array<int,array<string,mixed>>
+     * @param string $text
+     * @return string[]
      */
-    private function search(string $alias, string $queryText, string $queryBy, int $limit): array
+    private function tokenize(string $text): array
     {
-        $params = [
-            'q' => $queryText === '' ? '*' : $queryText,
-            'query_by' => $queryBy,
-            'per_page' => $limit,
-            'page' => 1,
-        ];
-
-        try {
-            $response = $this->client->request(
-                'GET',
-                '/collections/' . $alias . '/documents/search',
-                null,
-                $params
-            );
-        } catch (TypesenseException $e) {
-            $this->logger->critical($e);
-
-            return [];
-        }
-
-        return $response['hits'] ?? [];
+        return preg_split('/\s+/u', mb_strtolower(trim($text)), -1, PREG_SPLIT_NO_EMPTY) ?: [];
     }
 
     /**
-     * Hit count for a single suggestion, used as its results count; 0 on failure.
+     * Ordered unique lowercased `matched_tokens` across every hit's highlights.
      *
-     * @param string $alias
-     * @param string $text suggestion text to count matches for
-     * @param string $queryBy comma-joined searchable fields
+     * Array fields report `matched_tokens` per element (a list of lists), so one level is flattened.
+     *
+     * @param array<int,array<string,mixed>> $hits
+     * @return string[]
      */
-    private function frequency(string $alias, string $text, string $queryBy): int
+    private function matchedTokens(array $hits): array
     {
-        $params = [
-            'q' => $text,
-            'query_by' => $queryBy,
-            'per_page' => 0,
-        ];
+        $matched = [];
+        foreach ($hits as $hit) {
+            foreach ($hit['highlights'] ?? [] as $highlight) {
+                foreach ($highlight['matched_tokens'] ?? [] as $entry) {
+                    foreach (is_array($entry) ? $entry : [$entry] as $token) {
+                        if (is_string($token) && $token !== '') {
+                            $matched[mb_strtolower($token)] = true;
+                        }
+                    }
+                }
+            }
+        }
 
+        return array_map('strval', array_keys($matched));
+    }
+
+    /**
+     * Rebuild the query from matched tokens; null when nothing is left or nothing changed.
+     *
+     * @param string[] $tokens normalized query tokens
+     * @param string[] $matched
+     */
+    private function correct(array $tokens, array $matched): ?string
+    {
+        $corrected = [];
+        foreach ($tokens as $token) {
+            if (in_array($token, $matched, true)) {
+                $corrected[] = $token;
+                continue;
+            }
+            $best = null;
+            $bestDistance = self::MAX_DISTANCE + 1;
+            foreach ($matched as $candidate) {
+                $distance = $this->distance($token, $candidate);
+                if ($distance < $bestDistance) {
+                    $best = $candidate;
+                    $bestDistance = $distance;
+                }
+            }
+            if ($best !== null) {
+                $corrected[] = $best;
+            }
+        }
+
+        $candidate = implode(' ', $corrected);
+
+        return $candidate === '' || $candidate === implode(' ', $tokens) ? null : $candidate;
+    }
+
+    /**
+     * Run a search against the alias; null on failure (logged).
+     *
+     * @param string $path search endpoint of the store alias
+     * @param array<string,mixed> $params
+     * @return array<string,mixed>|null
+     */
+    private function search(string $path, array $params): ?array
+    {
         try {
-            $response = $this->client->request(
-                'GET',
-                '/collections/' . $alias . '/documents/search',
-                null,
-                $params
-            );
+            return $this->client->request('GET', $path, null, $params);
         } catch (TypesenseException $e) {
             $this->logger->critical($e);
 
-            return 0;
+            return null;
+        }
+    }
+
+    /**
+     * Levenshtein distance in characters; PHP's `levenshtein()` counts bytes, inflating non-ASCII typos.
+     *
+     * @param string $a
+     * @param string $b
+     */
+    private function distance(string $a, string $b): int
+    {
+        $left = mb_str_split($a);
+        $right = mb_str_split($b);
+        $previous = range(0, count($right));
+        foreach ($left as $i => $leftChar) {
+            $current = [$i + 1];
+            foreach ($right as $j => $rightChar) {
+                $current[] = min(
+                    $previous[$j + 1] + 1,
+                    $current[$j] + 1,
+                    $previous[$j] + ($leftChar === $rightChar ? 0 : 1)
+                );
+            }
+            $previous = $current;
         }
 
-        return (int)($response['found'] ?? 0);
+        return $previous[count($right)];
     }
 }

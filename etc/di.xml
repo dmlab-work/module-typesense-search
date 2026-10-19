@@ -2,15 +2,12 @@
 <!--
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 -->
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
-    <!--
-        Group (c): engine-specific search client. `ClientResolver::create()` builds the
-        client via our factory and reads options via our ClientOptions — never
-        `Magento\Elasticsearch\Model\Config`, whose paths do not apply to Typesense.
-    -->
+    <!-- Engine client + options; Magento\Elasticsearch\Model\Config paths do not apply to Typesense. -->
     <type name="Magento\AdvancedSearch\Model\Client\ClientResolver">
         <arguments>
             <argument name="clientFactories" xsi:type="array">
@@ -22,7 +19,7 @@
         </arguments>
     </type>
 
-    <!-- Engine connection validator, probed on config save / setup:install. -->
+    <!-- Connection validator, run by setup:upgrade. -->
     <type name="Magento\Search\Model\SearchEngine\Validator">
         <arguments>
             <argument name="engineValidators" xsi:type="array">
@@ -31,29 +28,9 @@
         </arguments>
     </type>
 
-    <!-- Persist engine + connection settings passed at setup:install time. -->
-    <type name="Magento\Search\Setup\CompositeInstallConfig">
-        <arguments>
-            <argument name="installConfigList" xsi:type="array">
-                <item name="typesense" xsi:type="object">DmLab\TypesenseSearch\Setup\InstallConfig</item>
-            </argument>
-        </arguments>
-    </type>
+    <!-- Engine identity. `typesense` mirrors DmLab\TypesenseIndexer\Api\EngineCode::ENGINE (di cannot reference a constant). -->
 
-    <!--
-        ============================================================================
-        Group (a): engine identity — plain registrations that make `typesense`
-        a selectable, resolvable engine. The literal string `typesense` mirrors
-        DmLab\TypesenseIndexer\Api\EngineCode::ENGINE (di cannot reference
-        a PHP constant).
-        ============================================================================
-    -->
-
-    <!--
-        Being in `engineList` is what feeds Config::isElasticsearchEnabled(), which
-        gates the catalogsearch_fulltext indexer dependency + category-product
-        observer. No ES server is required — only presence in this list.
-    -->
+    <!-- engineList feeds isElasticsearchEnabled(), which gates the fulltext indexer wiring; no ES server needed. -->
     <type name="Magento\Elasticsearch\Model\Config">
         <arguments>
             <argument name="engineList" xsi:type="array">
@@ -89,13 +66,7 @@
         </arguments>
     </type>
 
-    <!--
-        ============================================================================
-        Group (b): reuse Magento's existing ES classes verified engine-agnostic.
-        None of these contain ES protocol; both shipped ES engines share them.
-        We only point our engine name at the same classes / virtualTypes.
-        ============================================================================
-    -->
+    <!-- Engine-agnostic Magento\Elasticsearch classes, shared by both bundled ES engines. -->
 
     <!-- Deps are only Visibility + IndexScopeResolver — no ES protocol. -->
     <type name="Magento\CatalogSearch\Model\ResourceModel\EngineProvider">
@@ -138,13 +109,7 @@
         </arguments>
     </type>
 
-    <!--
-        ============================================================================
-        typesense-indexer's implementations — this module registers them, exactly
-        as module-open-search registers module-elasticsearch's handler/structure.
-        Single writer: the indexer owns documents + schema; we only wire it in.
-        ============================================================================
-    -->
+    <!-- typesense-indexer's handler/structure (single writer), wired like module-open-search does for ES. -->
     <type name="Magento\CatalogSearch\Model\Indexer\IndexerHandlerFactory">
         <arguments>
             <argument name="handlers" xsi:type="array">
@@ -160,38 +125,21 @@
         </arguments>
     </type>
 
-    <!--
-        ============================================================================
-        Query modifier pipeline — the composable seam (never a `preference`).
-        The composite applies QueryModifierInterface steps in di `sortOrder`, each
-        receiving the previous step's payload. Ships empty: later modules
-        (merchandising, semantic) add modifiers here so they compose instead of
-        colliding. Example:
-
-            <type name="DmLab\TypesenseSearch\SearchAdapter\Query\QueryModifier">
-                <arguments>
-                    <argument name="modifiers" xsi:type="array">
-                        <item sortOrder="10" name="merchandising" xsi:type="object">Vendor\Module\Query\MyModifier</item>
-                    </argument>
-                </arguments>
-            </type>
-        ============================================================================
-    -->
+    <!-- Query modifier pipeline (di-sorted, never a preference); ships empty. Example in README. -->
     <type name="DmLab\TypesenseSearch\SearchAdapter\Query\QueryModifier">
         <arguments>
             <argument name="modifiers" xsi:type="array"/>
         </arguments>
     </type>
 
-    <!--
-        ============================================================================
-        Group (c): dynamic price aggregation. Magento's ES DataProvider/Interval are
-        ES-only by their own docblock, so we ship Typesense equivalents and register
-        them into the engine-resolved factories. The framework price-slider algorithm
-        (Auto/Improved) picks them by engine name; both read Typesense facet stats /
-        price-sorted windows over the store's collection alias.
-        ============================================================================
-    -->
+    <!-- Response processor pipeline: rewrites the raw response before mapping; ships empty. Example in README. -->
+    <type name="DmLab\TypesenseSearch\SearchAdapter\Response\ResponseProcessor">
+        <arguments>
+            <argument name="processors" xsi:type="array"/>
+        </arguments>
+    </type>
+
+    <!-- Price slider data provider + interval; Magento's ES ones are ES-only. -->
     <type name="Magento\Framework\Search\Dynamic\DataProviderFactory">
         <arguments>
             <argument name="dataProviders" xsi:type="array">
@@ -207,14 +155,7 @@
         </arguments>
     </type>
 
-    <!--
-        ============================================================================
-        Group (c): search suggestions. Magento's ES Suggestions builds a phrase
-        suggester (ES-only), so we ship a Typesense equivalent backed by typo-tolerant
-        search and register the engine into the SuggestedQueries pool. Leaving
-        `typesense` unregistered here would fatal the search box.
-        ============================================================================
-    -->
+    <!-- "Did you mean". Leaving `typesense` unregistered fatals the search box. -->
     <type name="Magento\AdvancedSearch\Model\SuggestedQueries">
         <arguments>
             <argument name="data" xsi:type="array">
@@ -223,12 +164,7 @@
         </arguments>
     </type>
 
-    <!--
-        ============================================================================
-        Group (c): our engine-specific query adapter. `AdapterFactory` selects it
-        by engine name; the class is built in Task 6.
-        ============================================================================
-    -->
+    <!-- Engine query adapter, selected by engine name. -->
     <type name="Magento\Search\Model\AdapterFactory">
         <arguments>
             <argument name="adapters" xsi:type="array">
@@ -237,16 +173,22 @@
         </arguments>
     </type>
 
-    <!--
-        ============================================================================
-        NOT registered on purpose — do NOT copy module-open-search's di.xml wholesale.
-        open-search reuses Magento\Elasticsearch\Model\Indexer\IndexerHandler, so it
-        must feed the ES-internal proxies below. We ship typesense-indexer's own
-        handler, so nothing in our path consults them:
-          - Elasticsearch5\...\ProductFieldMapperProxy::productFieldMappers
-          - Elasticsearch5\...\BatchDataMapper\CategoryFieldsProviderProxy::categoryFieldsProviders
-          - Elasticsearch5\Model\Client\ClientFactoryProxy::clientFactories
-          - Elasticsearch\Model\Adapter\Elasticsearch::responseErrorExceptionList
-        ============================================================================
-    -->
+    <!-- Never disabled="true" — that would break switching back to OpenSearch. -->
+    <type name="Magento\Elasticsearch\Model\Indexer\Fulltext\Plugin\Category\Product\Attribute">
+        <plugin name="dmlab_typesense_search_neutralise_es_attribute"
+                type="DmLab\TypesenseSearch\Plugin\Elasticsearch\AttributeIndexerNeutralizePlugin"/>
+    </type>
+
+    <!-- Indexer schema changes (alias swap, in-place attribute PATCH) drop the cached alias schema. -->
+    <type name="DmLab\TypesenseCore\Model\Collection\AliasManager">
+        <plugin name="dmlab_typesense_search_schema_cache_invalidation"
+                type="DmLab\TypesenseSearch\Plugin\Indexer\SchemaCacheInvalidationPlugin"/>
+    </type>
+    <type name="DmLab\TypesenseIndexer\Model\Plugin\AttributeSaveHandler">
+        <plugin name="dmlab_typesense_search_schema_cache_invalidation"
+                type="DmLab\TypesenseSearch\Plugin\Indexer\SchemaCacheInvalidationPlugin"/>
+    </type>
+
+    <!-- Do not copy open-search's ES-internal proxies (ProductFieldMapperProxy, ClientFactoryProxy, ...):
+         they serve the ES IndexerHandler, which this engine does not use. -->
 </config>

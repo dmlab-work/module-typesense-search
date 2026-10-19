@@ -1,6 +1,7 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 declare(strict_types=1);
 
@@ -47,7 +48,7 @@ class Interval implements IntervalInterface
      * @param LoggerInterface $logger
      * @param string $fieldName numeric field the interval walks (price)
      * @param int $storeId store view whose collection is queried
-     * @param array<string,mixed> $matchQuery match-set params (`q`/`query_by`/`query_by_weights`/`filter_by`)
+     * @param array<string,mixed> $matchQuery match-set params of the main search (paging/sort/facet keys excluded)
      */
     public function __construct(
         private readonly TypesenseClient $client,
@@ -209,21 +210,19 @@ class Interval implements IntervalInterface
     }
 
     /**
-     * The match-set query params (`q`/`query_by`/`query_by_weights`) that scope every window, minus
-     * `filter_by` — the price bounds are ANDed onto that separately in {@see self::filter()}.
+     * Every match-set param (incl. modifier params such as `vector_query`) except `filter_by`, which
+     * {@see self::filter()} ANDs with the price bounds; `q` defaults to `*`.
      *
      * @return array<string,mixed>
      */
     private function baseParams(): array
     {
-        $params = [];
-        foreach (['q', 'query_by', 'query_by_weights'] as $key) {
-            if (isset($this->matchQuery[$key]) && $this->matchQuery[$key] !== '') {
-                $params[$key] = $this->matchQuery[$key];
+        $params = ['q' => '*'];
+        foreach ($this->matchQuery as $key => $value) {
+            if ($key === 'filter_by' || $value === null || $value === '') {
+                continue;
             }
-        }
-        if (!isset($params['q'])) {
-            $params['q'] = '*';
+            $params[$key] = $value;
         }
 
         return $params;

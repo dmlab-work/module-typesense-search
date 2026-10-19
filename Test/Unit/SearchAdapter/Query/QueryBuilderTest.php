@@ -1,15 +1,21 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 declare(strict_types=1);
 
 namespace DmLab\TypesenseSearch\Test\Unit\SearchAdapter\Query;
 
+use DmLab\TypesenseIndexer\Api\IndexNameResolverInterface;
 use DmLab\TypesenseIndexer\Api\SearchableFieldsProviderInterface;
 use DmLab\TypesenseSearch\Exception\UnsupportedSearchRequestException;
 use DmLab\TypesenseSearch\SearchAdapter\Field\FieldNameResolver;
+use DmLab\TypesenseSearch\SearchAdapter\Query\FilterValueFormatter;
 use DmLab\TypesenseSearch\SearchAdapter\Query\QueryBuilder;
+use DmLab\TypesenseSearch\SearchAdapter\Query\SynonymSetResolver;
+use DmLab\TypesenseSearch\SearchAdapter\Schema\CollectionSchema;
+use DmLab\TypesenseSearch\SearchAdapter\Schema\DroppedFieldLogger;
 use DmLab\TypesenseSearch\SearchAdapter\StoreResolver;
 use Magento\Framework\App\ScopeInterface;
 use Magento\Framework\App\ScopeResolverInterface;
@@ -32,8 +38,15 @@ class QueryBuilderTest extends TestCase
 {
     private const FIELDS = ['name' => 5, 'sku' => 3];
 
-    private function builder(array $fields = self::FIELDS, int $storeId = 1): QueryBuilder
-    {
+    /** @var DroppedFieldLogger|null */
+    private ?DroppedFieldLogger $droppedFieldLogger = null;
+
+    private function builder(
+        array $fields = self::FIELDS,
+        int $storeId = 1,
+        ?CollectionSchema $schema = null,
+        ?string $synonymSet = null
+    ): object {
         $provider = $this->createMock(SearchableFieldsProviderInterface::class);
         $provider->method('get')->with($storeId)->willReturn($fields);
 
@@ -53,7 +66,45 @@ class QueryBuilderTest extends TestCase
             }
         );
 
-        return new QueryBuilder($provider, new StoreResolver($scopeResolver), $fieldNameResolver);
+        $indexNameResolver = $this->createMock(IndexNameResolverInterface::class);
+        $indexNameResolver->method('getAliasName')->with('catalogsearch_fulltext', $storeId)->willReturn('alias_1');
+        $synonymSetResolver = $this->createMock(SynonymSetResolver::class);
+        $synonymSetResolver->method('getSetName')->with($storeId)->willReturn($synonymSet);
+
+        $builder = new QueryBuilder(
+            $provider,
+            new StoreResolver($scopeResolver),
+            $fieldNameResolver,
+            $indexNameResolver,
+            new FilterValueFormatter(),
+            $synonymSetResolver,
+            $this->droppedFieldLogger ?? $this->createMock(DroppedFieldLogger::class)
+        );
+
+        // Binds the schema the adapter would pass, so tests call build($request).
+        return new class ($builder, $schema) {
+            public function __construct(
+                private readonly QueryBuilder $builder,
+                private readonly ?CollectionSchema $schema
+            ) {
+            }
+
+            public function build(RequestInterface $request): array
+            {
+                return $this->builder->build($request, $this->schema);
+            }
+        };
+    }
+
+    private function typedSchema(): CollectionSchema
+    {
+        return new CollectionSchema([
+            ['name' => 'eco_collection', 'type' => 'int32', 'facet' => true],
+            ['name' => 'legacy_flag', 'type' => 'bool', 'facet' => true],
+            ['name' => 'color', 'type' => 'int32[]', 'facet' => true],
+            ['name' => 'sku', 'type' => 'string', 'sort' => true],
+            ['name' => 'price_[0-9]+_.*', 'type' => 'float', 'facet' => true, 'sort' => true, 'optional' => true],
+        ]);
     }
 
     private function request(QueryInterface $query, ?int $from = null, ?int $size = null): RequestInterface
@@ -70,6 +121,149 @@ class QueryBuilderTest extends TestCase
     private function filterQuery(FilterInterface $filter): FilterQuery
     {
         return new FilterQuery('f', null, FilterQuery::REFERENCE_FILTER, $filter);
+    }
+
+    /**
+     * Fulltext-style request exposing `getSort()`, which {@see RequestInterface} lacks.
+     *
+     * @param array<int,array<string,string>> $sort
+     */
+    private function sortRequest(array $sort, ?QueryInterface $query = null): RequestInterface
+    {
+        return new class($query ?? new MatchQuery('search', 'x', null, []), $sort) implements RequestInterface {
+            public function __construct(private readonly QueryInterface $query, private readonly array $sort)
+            {
+            }
+
+            public function getName()
+            {
+                return 'req';
+            }
+
+            public function getIndex()
+            {
+                return 'catalogsearch_fulltext';
+            }
+
+            public function getDimensions()
+            {
+                return [new Dimension('scope', '1')];
+            }
+
+            public function getAggregation()
+            {
+                return [];
+            }
+
+            public function getQuery()
+            {
+                return $this->query;
+            }
+
+            public function getFrom()
+            {
+                return 0;
+            }
+
+            public function getSize()
+            {
+                return 10;
+            }
+
+            public function getSort()
+            {
+                return $this->sort;
+            }
+        };
+    }
+
+    private function sortSchema(): CollectionSchema
+    {
+        return new CollectionSchema([
+            ['name' => 'name', 'type' => 'string', 'sort' => true],
+            ['name' => 'description', 'type' => 'string'],
+            ['name' => 'color', 'type' => 'int32[]', 'facet' => true],
+            ['name' => 'sort_color', 'type' => 'string', 'sort' => true, 'optional' => true],
+            ['name' => 'size', 'type' => 'int32', 'facet' => true, 'sort' => true],
+            ['name' => 'material', 'type' => 'int32[]', 'facet' => true],
+            ['name' => 'category_ids', 'type' => 'int64[]', 'facet' => true],
+            ['name' => 'price_[0-9]+_.*', 'type' => 'float', 'facet' => true, 'sort' => true, 'optional' => true],
+            ['name' => 'position_category_.*', 'type' => 'int32', 'sort' => true, 'optional' => true],
+        ]);
+    }
+
+    public function testSortOnMissingOrUnsortableFieldIsDroppedAndLogged(): void
+    {
+        $logged = [];
+        $this->droppedFieldLogger = $this->createMock(DroppedFieldLogger::class);
+        $this->droppedFieldLogger->expects($this->exactly(2))->method('log')
+            ->willReturnCallback(static function (string $alias, string $field, string $message) use (&$logged): void {
+                self::assertStringContainsString('alias_1', $message);
+                $logged[] = $alias . ':' . $field;
+            });
+
+        $payload = $this->builder(self::FIELDS, 1, $this->sortSchema())->build($this->sortRequest([
+            ['field' => 'relevance', 'direction' => 'desc'],
+            ['field' => 'missing', 'direction' => 'asc'],
+            ['field' => 'description', 'direction' => 'asc'],
+            ['field' => 'name', 'direction' => 'asc'],
+        ]));
+
+        self::assertSame('_text_match:desc,name:asc', $payload['sort_by']);
+        self::assertSame(['alias_1:missing', 'alias_1:description'], $logged);
+    }
+
+    public function testOnlyDroppedSortsYieldNoSortKey(): void
+    {
+        $payload = $this->builder(self::FIELDS, 1, $this->sortSchema())
+            ->build($this->sortRequest([['field' => 'missing', 'direction' => 'asc']]));
+
+        self::assertArrayNotHasKey('sort_by', $payload);
+    }
+
+    public function testSelectAttributeSortsOnItsLabelField(): void
+    {
+        $payload = $this->builder(self::FIELDS, 1, $this->sortSchema())
+            ->build($this->sortRequest([['field' => 'color', 'direction' => 'asc']]));
+
+        self::assertSame('sort_color:asc', $payload['sort_by']);
+    }
+
+    public function testAttributeWithoutLabelFieldSortsOnItsOwnFieldOrIsDropped(): void
+    {
+        $builder = $this->builder(self::FIELDS, 1, $this->sortSchema());
+
+        self::assertSame(
+            'size:desc',
+            $builder->build($this->sortRequest([['field' => 'size', 'direction' => 'desc']]))['sort_by']
+        );
+        self::assertArrayNotHasKey(
+            'sort_by',
+            $builder->build($this->sortRequest([['field' => 'material', 'direction' => 'asc']]))
+        );
+    }
+
+    public function testRegexDeclaredSortFieldsAreKept(): void
+    {
+        $category = $this->filterQuery(new TermFilter('t', '41', 'category_ids'));
+        $query = new QueryBool('bool', null, ['category' => $category]);
+
+        $payload = $this->builder(self::FIELDS, 1, $this->sortSchema())->build($this->sortRequest(
+            [['field' => 'position', 'direction' => 'asc'], ['field' => 'price', 'direction' => 'desc']],
+            $query
+        ));
+
+        self::assertSame('position_category_41:asc,price_0_1:desc', $payload['sort_by']);
+    }
+
+    public function testNullSchemaKeepsEverySort(): void
+    {
+        $payload = $this->builder()->build($this->sortRequest([
+            ['field' => 'color', 'direction' => 'asc'],
+            ['field' => 'missing', 'direction' => 'desc'],
+        ]));
+
+        self::assertSame('color:asc,missing:desc', $payload['sort_by']);
     }
 
     public function testQueryByAndWeightsComeFromIndexerContract(): void
@@ -132,6 +326,33 @@ class QueryBuilderTest extends TestCase
 
         self::assertSame('', $payload['query_by']);
         self::assertSame('red', $payload['q']);
+    }
+
+    public function testFieldScopedMatchOnSelectTargetsValueField(): void
+    {
+        $query = new QueryBool(
+            'advanced',
+            null,
+            [
+                new MatchQuery('color_query', 'red', null, [['field' => 'color']]),
+                new MatchQuery('unknown_query', 'x', null, [['field' => 'unknown']]),
+            ]
+        );
+
+        $payload = $this->builder(['name' => 5, 'color_value' => 2])->build($this->request($query));
+
+        self::assertSame('color_value', $payload['query_by']);
+        self::assertSame('2', $payload['query_by_weights']);
+    }
+
+    public function testFieldScopedMatchPrefersExactFieldOverValueField(): void
+    {
+        $payload = $this->builder(['color' => 4, 'color_value' => 2])->build(
+            $this->request(new MatchQuery('color_query', 'red', null, [['field' => 'color']]))
+        );
+
+        self::assertSame('color', $payload['query_by']);
+        self::assertSame('4', $payload['query_by_weights']);
     }
 
     public function testMultipleFieldScopedMatchesUnionTheirFields(): void
@@ -634,12 +855,100 @@ class QueryBuilderTest extends TestCase
         self::assertArrayNotHasKey('sort_by', $payload);
     }
 
-    public function testWildcardFilterThrows(): void
+    public function testTypedTermValuesFollowTheSchema(): void
     {
-        $query = $this->filterQuery(new WildcardFilter('w', 'abc', 'sku'));
+        $schema = $this->typedSchema();
+        $build = fn (FilterInterface $filter): string => $this->builder(self::FIELDS, 1, $schema)
+            ->build($this->request($this->filterQuery($filter)))['filter_by'];
+
+        self::assertSame('eco_collection:=1', $build(new TermFilter('t', '1', 'eco_collection')));
+        self::assertSame('legacy_flag:=true', $build(new TermFilter('t', '1', 'legacy_flag')));
+        self::assertSame('color:=[49,50]', $build(new TermFilter('t', ['49', '50'], 'color')));
+        self::assertSame('sku:=`007`', $build(new TermFilter('t', '007', 'sku')));
+    }
+
+    public function testTypedRangeValuesFollowTheSchema(): void
+    {
+        $payload = $this->builder(self::FIELDS, 1, $this->typedSchema())
+            ->build($this->request($this->filterQuery(new RangeFilter('r', 'price', '10', '99.5'))));
+
+        self::assertSame('(price_0_1:>=10 && price_0_1:<=99.5)', $payload['filter_by']);
+    }
+
+    public function testUncoercibleTypedValueThrows(): void
+    {
+        $this->expectException(UnsupportedSearchRequestException::class);
+        $this->builder(self::FIELDS, 1, $this->typedSchema())
+            ->build($this->request($this->filterQuery(new TermFilter('t', 'abc', 'color'))));
+    }
+
+    public function testFilterOnFieldMissingFromSchemaThrows(): void
+    {
+        $this->expectException(UnsupportedSearchRequestException::class);
+        $this->expectExceptionMessage('activity');
+        $this->builder(self::FIELDS, 1, $this->typedSchema())
+            ->build($this->request($this->filterQuery(new TermFilter('t', '5', 'activity'))));
+    }
+
+    public function testNullSchemaKeepsUntypedValues(): void
+    {
+        $payload = $this->builder()->build(
+            $this->request($this->filterQuery(new TermFilter('t', '1', 'legacy_flag')))
+        );
+
+        self::assertSame('legacy_flag:=1', $payload['filter_by']);
+    }
+
+    public static function wildcardProvider(): array
+    {
+        return [
+            'plain' => ['WSH12', 'sku:`WSH12`*'],
+            'percent-wrapped' => ['%WSH%', 'sku:`WSH`*'],
+            'star-wrapped' => ['*WSH*', 'sku:`WSH`*'],
+            'space' => ['WSH 12', 'sku:`WSH 12`*'],
+            'backtick' => ['W`SH', 'sku:`WSH`*'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('wildcardProvider')]
+    public function testWildcardFilterBecomesPrefixMatch(string $value, string $expected): void
+    {
+        $query = $this->filterQuery(new WildcardFilter('w', $value, 'sku'));
+
+        $payload = $this->builder(schema: $this->typedSchema())->build($this->request($query));
+
+        $this->assertSame($expected, $payload['filter_by']);
+    }
+
+    public function testWildcardWithNullSchemaStillPrefixMatches(): void
+    {
+        $query = $this->filterQuery(new WildcardFilter('w', 'WSH', 'sku'));
+
+        $this->assertSame('sku:`WSH`*', $this->builder()->build($this->request($query))['filter_by']);
+    }
+
+    public function testWildcardEmptyAfterStripThrows(): void
+    {
+        $query = $this->filterQuery(new WildcardFilter('w', '%*`%', 'sku'));
 
         $this->expectException(UnsupportedSearchRequestException::class);
-        $this->builder()->build($this->request($query));
+        $this->builder(schema: $this->typedSchema())->build($this->request($query));
+    }
+
+    public function testWildcardOnNonStringFieldThrows(): void
+    {
+        $query = $this->filterQuery(new WildcardFilter('w', '1', 'eco_collection'));
+
+        $this->expectException(UnsupportedSearchRequestException::class);
+        $this->builder(schema: $this->typedSchema())->build($this->request($query));
+    }
+
+    public function testNegatedWildcardThrows(): void
+    {
+        $query = new QueryBool('bool', null, [], [], [$this->filterQuery(new WildcardFilter('w', 'WSH', 'sku'))]);
+
+        $this->expectException(UnsupportedSearchRequestException::class);
+        $this->builder(schema: $this->typedSchema())->build($this->request($query));
     }
 
     public function testNegatedRangeThrows(): void
@@ -657,5 +966,20 @@ class QueryBuilderTest extends TestCase
 
         $this->expectException(UnsupportedSearchRequestException::class);
         $this->builder()->build($this->request($query));
+    }
+
+    public function testSynonymSetIsSentWhenTheSetExists(): void
+    {
+        $payload = $this->builder(self::FIELDS, 1, null, 'alias_1_synonyms')
+            ->build($this->request(new MatchQuery('search', 'jacket', null, [])));
+
+        self::assertSame('alias_1_synonyms', $payload['synonym_sets']);
+    }
+
+    public function testNoSynonymSetParamWhenTheSetIsAbsent(): void
+    {
+        $payload = $this->builder()->build($this->request(new MatchQuery('search', 'jacket', null, [])));
+
+        self::assertArrayNotHasKey('synonym_sets', $payload);
     }
 }

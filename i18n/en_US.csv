@@ -1,0 +1,3 @@
+"Test Connection","Test Connection"
+"Typesense connection failed (%1): %2","Typesense connection failed (%1): %2"
+"Could not validate a connection to Typesense.","Could not validate a connection to Typesense."

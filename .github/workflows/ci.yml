@@ -72,3 +72,39 @@ jobs:
         with:
           files: coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  integration:
+    name: Integration (Typesense 30.2)
+    runs-on: ubuntu-latest
+    services:
+      typesense:
+        image: typesense/typesense:30.2
+        env:
+          TYPESENSE_DATA_DIR: /tmp
+          TYPESENSE_API_KEY: test
+        ports:
+          - 8108:8108
+    env:
+      TYPESENSE_TEST_URL: http://localhost:8108
+      TYPESENSE_TEST_API_KEY: test
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: bcmath, gd, intl, soap, sodium, xsl, zip
+          coverage: none
+
+      - name: Configure Magento packages
+        run: |
+          composer config repositories.mage-os composer https://mirror.mage-os.org/
+          composer config --no-plugins allow-plugins.magento/magento-composer-installer false
+          composer config --no-plugins allow-plugins.magento/composer-dependency-version-audit-plugin false
+
+      - uses: ramsey/composer-install@v4
+
+      - name: Wait for Typesense
+        run: for i in $(seq 1 30); do curl -sf http://localhost:8108/health && exit 0; sleep 2; done; exit 1
+
+      - run: vendor/bin/phpunit -c Test/Integration/phpunit.xml

@@ -1,6 +1,7 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  *
  * Standalone unit-test bootstrap: loads Magento's Composer autoloader (for the
  * framework classes this module depends on), registers a PSR-4 map for this

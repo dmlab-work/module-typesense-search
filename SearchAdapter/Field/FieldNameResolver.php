@@ -1,6 +1,7 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 declare(strict_types=1);
 
@@ -27,6 +28,9 @@ use Magento\Store\Model\StoreManagerInterface;
  */
 class FieldNameResolver
 {
+    /** Attributes the indexer fans out into scope-derived fields. */
+    private const CONTEXT_SCOPED = ['price', 'position'];
+
     /**
      * @param SchemaFieldNameResolver $schemaFieldNameResolver indexer-owned name authority (the exact naming rule)
      * @param CustomerSession $customerSession source of the current customer group id (price scope)
@@ -49,7 +53,7 @@ class FieldNameResolver
      */
     public function resolve(string $field, array $context = []): string
     {
-        if (!$this->schemaFieldNameResolver->isContextScoped($field)) {
+        if (!in_array($field, self::CONTEXT_SCOPED, true)) {
             return $field;
         }
 

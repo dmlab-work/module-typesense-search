@@ -1,6 +1,7 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 declare(strict_types=1);
 
@@ -34,7 +35,6 @@ class RegistrationTest extends TestCase
 
         self::assertNotFalse($xml);
         self::assertSame('DmLab_TypesenseSearch', (string)$xml->module['name']);
-        self::assertSame('0.0.1', (string)$xml->module['setup_version']);
 
         $sequence = [];
         foreach ($xml->module->sequence->module as $module) {
@@ -46,6 +46,7 @@ class RegistrationTest extends TestCase
         // so both must load first — core ahead of the indexer that builds on it.
         self::assertSame('DmLab_TypesenseCore', $sequence[0]);
         self::assertContains('DmLab_TypesenseIndexer', $sequence);
+        self::assertContains('Magento_Search', $sequence);
         self::assertContains('Magento_CatalogSearch', $sequence);
         self::assertContains('Magento_AdvancedSearch', $sequence);
         // ES is a structural dependency: Config::isElasticsearchEnabled gates the
@@ -63,7 +64,6 @@ class RegistrationTest extends TestCase
 
         self::assertSame('dmlab/module-typesense-search', $composer['name']);
         self::assertSame('OSL-3.0', $composer['license']);
-        self::assertSame('0.1.1', $composer['version']);
         self::assertSame('magento2-module', $composer['type']);
 
         self::assertArrayHasKey('dmlab/module-typesense-core', $composer['require']);

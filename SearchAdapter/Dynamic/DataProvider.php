@@ -1,6 +1,7 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 declare(strict_types=1);
 
@@ -64,6 +65,8 @@ class DataProvider implements DataProviderInterface
 
     /**
      * Store id whose collection alias the match-set query runs against.
+     *
+     * @var int
      */
     private int $storeId = 0;
 

@@ -1,6 +1,7 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 declare(strict_types=1);
 
@@ -37,11 +38,10 @@ class Validator implements ValidatorInterface
         try {
             $client = $this->clientResolver->create();
             if (!$client->testConnection()) {
-                $errors[] = 'Could not validate a connection to Typesense.'
-                    . ' Verify that the configured nodes and API key are correct.';
+                $errors[] = (string)__('Could not validate a connection to Typesense.');
             }
         } catch (\Exception $e) {
-            $errors[] = 'Could not validate a connection to Typesense. ' . $e->getMessage();
+            $errors[] = __('Could not validate a connection to Typesense.') . ' ' . $e->getMessage();
         }
 
         return $errors;

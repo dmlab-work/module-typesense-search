@@ -1,18 +1,24 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 declare(strict_types=1);
 
 namespace DmLab\TypesenseSearch\SearchAdapter\Query;
 
+use DmLab\TypesenseIndexer\Api\IndexNameResolverInterface;
 use DmLab\TypesenseIndexer\Api\SearchableFieldsProviderInterface;
 use DmLab\TypesenseSearch\Exception\UnsupportedSearchRequestException;
 use DmLab\TypesenseSearch\SearchAdapter\Field\FieldNameResolver;
+use DmLab\TypesenseSearch\SearchAdapter\Schema\CollectionSchema;
+use DmLab\TypesenseSearch\SearchAdapter\Schema\DroppedFieldLogger;
 use DmLab\TypesenseSearch\SearchAdapter\StoreResolver;
+use Magento\CatalogSearch\Model\Indexer\Fulltext;
 use Magento\Framework\Search\Request\Filter\BoolExpression as FilterBool;
 use Magento\Framework\Search\Request\Filter\Range as RangeFilter;
 use Magento\Framework\Search\Request\Filter\Term as TermFilter;
+use Magento\Framework\Search\Request\Filter\Wildcard as WildcardFilter;
 use Magento\Framework\Search\Request\FilterInterface;
 use Magento\Framework\Search\Request\Query\BoolExpression as QueryBool;
 use Magento\Framework\Search\Request\Query\Filter as FilterQuery;
@@ -28,9 +34,10 @@ use Magento\Framework\Search\RequestInterface;
  *  - `query_by` / `query_by_weights` are `typesense-indexer`'s {@see SearchableFieldsProviderInterface}
  *    set (string-only-safe, never re-derived here), narrowed to the fields a match scopes to — a
  *    quick-search `*` match keeps every field; an Advanced Search attribute match keeps only its own;
- *  - every other constraint (term/range/bool filters) becomes a `filter_by` expression.
+ *  - every other constraint (term/range/bool filters) becomes a `filter_by` expression, its values
+ *    typed by the alias schema the adapter passes in; a null schema keeps untyped values.
  *
- * Constructs Typesense cannot express (wildcard filters, negated compounds, unknown types)
+ * Constructs Typesense cannot express (negated wildcards/compounds, unknown types)
  * raise {@see UnsupportedSearchRequestException} rather than silently dropping the constraint.
  */
 class QueryBuilder
@@ -39,11 +46,19 @@ class QueryBuilder
      * @param SearchableFieldsProviderInterface $searchableFieldsProvider indexer-owned `query_by` seam
      * @param StoreResolver $storeResolver resolves the request dimension to a store id
      * @param FieldNameResolver $fieldNameResolver maps context-scoped codes (price/position) to their doc field
+     * @param IndexNameResolverInterface $indexNameResolver indexer-owned alias name authority
+     * @param FilterValueFormatter $valueFormatter type-aware filter value formatting
+     * @param SynonymSetResolver $synonymSetResolver store's native-synonym set, if any
+     * @param DroppedFieldLogger $droppedFieldLogger
      */
     public function __construct(
         private readonly SearchableFieldsProviderInterface $searchableFieldsProvider,
         private readonly StoreResolver $storeResolver,
-        private readonly FieldNameResolver $fieldNameResolver
+        private readonly FieldNameResolver $fieldNameResolver,
+        private readonly IndexNameResolverInterface $indexNameResolver,
+        private readonly FilterValueFormatter $valueFormatter,
+        private readonly SynonymSetResolver $synonymSetResolver,
+        private readonly DroppedFieldLogger $droppedFieldLogger
     ) {
     }
 
@@ -51,17 +66,19 @@ class QueryBuilder
      * Build the Typesense search parameters for a request (collection name is added downstream).
      *
      * @param RequestInterface $request
+     * @param CollectionSchema|null $schema alias schema, null when unknown
      * @return array<string,mixed>
      * @throws UnsupportedSearchRequestException
      */
-    public function build(RequestInterface $request): array
+    public function build(RequestInterface $request, ?CollectionSchema $schema): array
     {
         $storeId = $this->storeResolver->resolve($request);
         $searchableFields = $this->searchableFieldsProvider->get($storeId);
+        $alias = $this->indexNameResolver->getAliasName(Fulltext::INDEXER_ID, $storeId);
 
         $textTerms = [];
         $matchFields = [];
-        $filterBy = $this->processQuery($request->getQuery(), $textTerms, $matchFields, false);
+        $filterBy = $this->processQuery($request->getQuery(), $textTerms, $matchFields, false, $schema);
 
         $queryByFields = $this->resolveQueryByFields($searchableFields, $matchFields);
 
@@ -75,7 +92,7 @@ class QueryBuilder
             $payload['filter_by'] = $filterBy;
         }
 
-        $sortBy = $this->buildSort($request);
+        $sortBy = $this->buildSort($request, $schema, $alias);
         if ($sortBy !== '') {
             $payload['sort_by'] = $sortBy;
         }
@@ -84,6 +101,11 @@ class QueryBuilder
         if ($size > 0) {
             $payload['per_page'] = $size;
             $payload['page'] = intdiv(max(0, (int)$request->getFrom()), $size) + 1;
+        }
+
+        $synonymSet = $this->synonymSetResolver->getSetName($storeId);
+        if ($synonymSet !== null) {
+            $payload['synonym_sets'] = $synonymSet;
         }
 
         return $payload;
@@ -96,10 +118,16 @@ class QueryBuilder
      * @param array<string,true> $textTerms collected match values, by reference
      * @param array<string,true> $matchFields fields a match scopes to (`*` = all), by reference
      * @param bool $negate
+     * @param CollectionSchema|null $schema
      * @throws UnsupportedSearchRequestException
      */
-    private function processQuery(QueryInterface $query, array &$textTerms, array &$matchFields, bool $negate): ?string
-    {
+    private function processQuery(
+        QueryInterface $query,
+        array &$textTerms,
+        array &$matchFields,
+        bool $negate,
+        ?CollectionSchema $schema
+    ): ?string {
         switch ($query->getType()) {
             case QueryInterface::TYPE_MATCH:
                 if ($negate) {
@@ -122,10 +150,10 @@ class QueryBuilder
                     );
                 }
                 /** @var QueryBool $query */
-                return $this->processBoolQuery($query, $textTerms, $matchFields);
+                return $this->processBoolQuery($query, $textTerms, $matchFields, $schema);
             case QueryInterface::TYPE_FILTER:
                 /** @var FilterQuery $query */
-                return $this->processFilterQuery($query, $textTerms, $matchFields, $negate);
+                return $this->processFilterQuery($query, $textTerms, $matchFields, $negate, $schema);
             default:
                 throw new UnsupportedSearchRequestException(
                     sprintf('Unsupported query type "%s".', $query->getType())
@@ -165,7 +193,8 @@ class QueryBuilder
      *
      * With a `*` match (quick search) or no match at all (pure filter/browse request) every
      * searchable field stays in `query_by`. Otherwise only the named match fields are kept —
-     * resolved to their document field and intersected with the searchable set, so a non-searchable
+     * resolved to their document field (or its `<field>_value` label field, which is how the indexer
+     * makes searchable selects searchable) and intersected with the searchable set, so a non-searchable
      * or unknown attribute drops out (an empty result then degrades gracefully in the adapter rather
      * than issuing an invalid `query_by`). Weights stay the indexer-owned searchable weights.
      *
@@ -182,8 +211,11 @@ class QueryBuilder
         $scoped = [];
         foreach (array_keys($matchFields) as $field) {
             $resolved = $this->fieldNameResolver->resolve($field);
-            if (isset($searchableFields[$resolved])) {
-                $scoped[$resolved] = $searchableFields[$resolved];
+            foreach ([$resolved, $resolved . '_value'] as $candidate) {
+                if (isset($searchableFields[$candidate])) {
+                    $scoped[$candidate] = $searchableFields[$candidate];
+                    break;
+                }
             }
         }
 
@@ -196,19 +228,24 @@ class QueryBuilder
      * @param QueryBool $query
      * @param array<string,true> $textTerms
      * @param array<string,true> $matchFields
+     * @param CollectionSchema|null $schema
      * @throws UnsupportedSearchRequestException
      */
-    private function processBoolQuery(QueryBool $query, array &$textTerms, array &$matchFields): ?string
-    {
+    private function processBoolQuery(
+        QueryBool $query,
+        array &$textTerms,
+        array &$matchFields,
+        ?CollectionSchema $schema
+    ): ?string {
         $mustParts = [];
         foreach ($query->getMust() as $sub) {
-            $part = $this->processQuery($sub, $textTerms, $matchFields, false);
+            $part = $this->processQuery($sub, $textTerms, $matchFields, false, $schema);
             if ($part !== null && $part !== '') {
                 $mustParts[] = $part;
             }
         }
         foreach ($query->getMustNot() as $sub) {
-            $part = $this->processQuery($sub, $textTerms, $matchFields, true);
+            $part = $this->processQuery($sub, $textTerms, $matchFields, true, $schema);
             if ($part !== null && $part !== '') {
                 $mustParts[] = $part;
             }
@@ -216,7 +253,7 @@ class QueryBuilder
 
         $shouldParts = [];
         foreach ($query->getShould() as $sub) {
-            $part = $this->processQuery($sub, $textTerms, $matchFields, false);
+            $part = $this->processQuery($sub, $textTerms, $matchFields, false, $schema);
             if ($part !== null && $part !== '') {
                 $shouldParts[] = $part;
             }
@@ -232,22 +269,25 @@ class QueryBuilder
      * @param array<string,true> $textTerms
      * @param array<string,true> $matchFields
      * @param bool $negate
+     * @param CollectionSchema|null $schema
      * @throws UnsupportedSearchRequestException
      */
     private function processFilterQuery(
         FilterQuery $query,
         array &$textTerms,
         array &$matchFields,
-        bool $negate
+        bool $negate,
+        ?CollectionSchema $schema
     ): ?string {
         return match ($query->getReferenceType()) {
             FilterQuery::REFERENCE_QUERY => $this->processQuery(
                 $query->getReference(),
                 $textTerms,
                 $matchFields,
-                $negate
+                $negate,
+                $schema
             ),
-            FilterQuery::REFERENCE_FILTER => $this->processFilterNode($query->getReference(), $negate),
+            FilterQuery::REFERENCE_FILTER => $this->processFilterNode($query->getReference(), $negate, $schema),
             default => throw new UnsupportedSearchRequestException(
                 sprintf('Unsupported filter reference type "%s".', $query->getReferenceType())
             ),
@@ -259,14 +299,15 @@ class QueryBuilder
      *
      * @param FilterInterface $filter
      * @param bool $negate
+     * @param CollectionSchema|null $schema
      * @throws UnsupportedSearchRequestException
      */
-    private function processFilterNode(FilterInterface $filter, bool $negate): ?string
+    private function processFilterNode(FilterInterface $filter, bool $negate, ?CollectionSchema $schema): ?string
     {
         switch ($filter->getType()) {
             case FilterInterface::TYPE_TERM:
                 /** @var TermFilter $filter */
-                return $this->buildTerm($filter, $negate);
+                return $this->buildTerm($filter, $negate, $schema);
             case FilterInterface::TYPE_RANGE:
                 if ($negate) {
                     throw new UnsupportedSearchRequestException(
@@ -274,7 +315,7 @@ class QueryBuilder
                     );
                 }
                 /** @var RangeFilter $filter */
-                return $this->buildRange($filter);
+                return $this->buildRange($filter, $schema);
             case FilterInterface::TYPE_BOOL:
                 if ($negate) {
                     throw new UnsupportedSearchRequestException(
@@ -282,11 +323,15 @@ class QueryBuilder
                     );
                 }
                 /** @var FilterBool $filter */
-                return $this->buildBoolFilter($filter);
+                return $this->buildBoolFilter($filter, $schema);
             case FilterInterface::TYPE_WILDCARD:
-                throw new UnsupportedSearchRequestException(
-                    'Typesense filter_by has no wildcard operator.'
-                );
+                if ($negate) {
+                    throw new UnsupportedSearchRequestException(
+                        'Typesense filter_by cannot negate a wildcard filter.'
+                    );
+                }
+                /** @var WildcardFilter $filter */
+                return $this->buildWildcard($filter, $schema);
             default:
                 throw new UnsupportedSearchRequestException(
                     sprintf('Unsupported filter type "%s".', $filter->getType())
@@ -299,41 +344,67 @@ class QueryBuilder
      *
      * @param TermFilter $filter
      * @param bool $negate
+     * @param CollectionSchema|null $schema
+     * @throws UnsupportedSearchRequestException
      */
-    private function buildTerm(TermFilter $filter, bool $negate): string
+    private function buildTerm(TermFilter $filter, bool $negate, ?CollectionSchema $schema): string
     {
         $operator = $negate ? ':!=' : ':=';
-        $field = $this->assertFieldName($this->fieldNameResolver->resolve($filter->getField()));
-        $value = $filter->getValue();
+        $field = $this->filterField($filter->getField(), $schema);
 
-        if (is_array($value)) {
-            $escaped = array_map([$this, 'escapeValue'], $value);
+        return $field . $operator . $this->valueFormatter->format($filter->getValue(), $schema?->getType($field));
+    }
 
-            return $field . $operator . '[' . implode(',', $escaped) . ']';
+    /**
+     * Wildcard filter as a token prefix match: `` field:`value`* ``.
+     *
+     * ES/OpenSearch match `*value*`; Typesense matches a token prefix.
+     *
+     * @param WildcardFilter $filter
+     * @param CollectionSchema|null $schema
+     * @throws UnsupportedSearchRequestException
+     */
+    private function buildWildcard(WildcardFilter $filter, ?CollectionSchema $schema): string
+    {
+        $field = $this->filterField($filter->getField(), $schema);
+        $type = $schema?->getType($field);
+        if ($schema !== null && $type !== 'string' && $type !== 'string[]') {
+            throw new UnsupportedSearchRequestException(
+                sprintf('Wildcard filter on "%s" needs a string field, got "%s".', $field, (string)$type)
+            );
         }
 
-        return $field . $operator . $this->escapeValue($value);
+        $value = trim(str_replace('`', '', (string)$filter->getValue()), '*%');
+        if ($value === '') {
+            throw new UnsupportedSearchRequestException(
+                sprintf('Wildcard filter on "%s" has no value.', $field)
+            );
+        }
+
+        return $field . ':`' . $value . '`*';
     }
 
     /**
      * Range filter: inclusive bounds mirroring Magento's ES builder (`gte`/`lte`).
      *
      * @param RangeFilter $filter
+     * @param CollectionSchema|null $schema
      * @throws UnsupportedSearchRequestException
      */
-    private function buildRange(RangeFilter $filter): string
+    private function buildRange(RangeFilter $filter, ?CollectionSchema $schema): string
     {
-        $field = $this->assertFieldName($this->fieldNameResolver->resolve($filter->getField()));
+        $field = $this->filterField($filter->getField(), $schema);
+        $type = $schema?->getType($field);
         $parts = [];
 
         $from = $filter->getFrom();
         if ($from !== null && $from !== '') {
-            $parts[] = $field . ':>=' . $this->escapeValue($from);
+            $parts[] = $field . ':>=' . $this->valueFormatter->format($from, $type);
         }
 
         $to = $filter->getTo();
         if ($to !== null && $to !== '') {
-            $parts[] = $field . ':<=' . $this->escapeValue($to);
+            $parts[] = $field . ':<=' . $this->valueFormatter->format($to, $type);
         }
 
         if ($parts === []) {
@@ -349,19 +420,20 @@ class QueryBuilder
      * Bool filter: must/mustNot ANDed, should ORed, mirroring {@see combine}.
      *
      * @param FilterBool $filter
+     * @param CollectionSchema|null $schema
      * @throws UnsupportedSearchRequestException
      */
-    private function buildBoolFilter(FilterBool $filter): ?string
+    private function buildBoolFilter(FilterBool $filter, ?CollectionSchema $schema): ?string
     {
         $mustParts = [];
         foreach ($filter->getMust() as $sub) {
-            $part = $this->processFilterNode($sub, false);
+            $part = $this->processFilterNode($sub, false, $schema);
             if ($part !== null && $part !== '') {
                 $mustParts[] = $part;
             }
         }
         foreach ($filter->getMustNot() as $sub) {
-            $part = $this->processFilterNode($sub, true);
+            $part = $this->processFilterNode($sub, true, $schema);
             if ($part !== null && $part !== '') {
                 $mustParts[] = $part;
             }
@@ -369,7 +441,7 @@ class QueryBuilder
 
         $shouldParts = [];
         foreach ($filter->getShould() as $sub) {
-            $part = $this->processFilterNode($sub, false);
+            $part = $this->processFilterNode($sub, false, $schema);
             if ($part !== null && $part !== '') {
                 $shouldParts[] = $part;
             }
@@ -401,28 +473,22 @@ class QueryBuilder
     }
 
     /**
-     * Escape a filter value: canonical numbers and booleans raw, everything else backtick-wrapped.
+     * Resolve a filter's document field; a field the (known) schema lacks can match no document.
      *
-     * Only a canonical number stays bare so it still matches int/float fields (price/qty ranges);
-     * a merely `is_numeric()`-looking string (`"007"`, `"1e3"`, `" 12"`, `"+5"`) is a string value
-     * targeting a string field and must be quoted, or Typesense emits it as a bare number and misses
-     * the match. Typesense needs backticks around string values carrying spaces, commas or other
-     * grammar characters. A literal backtick cannot appear in the grammar, so it is dropped.
-     *
-     * @param mixed $value
+     * @param string $attributeCode
+     * @param CollectionSchema|null $schema
+     * @throws UnsupportedSearchRequestException
      */
-    private function escapeValue(mixed $value): string
+    private function filterField(string $attributeCode, ?CollectionSchema $schema): string
     {
-        if (is_bool($value)) {
-            return $value ? 'true' : 'false';
+        $field = $this->assertFieldName($this->fieldNameResolver->resolve($attributeCode));
+        if ($schema !== null && !$schema->has($field)) {
+            throw new UnsupportedSearchRequestException(
+                sprintf('Filter field "%s" is not declared in the Typesense schema.', $field)
+            );
         }
 
-        $string = (string)$value;
-        if (preg_match('/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/', $string) === 1) {
-            return $string;
-        }
-
-        return '`' . str_replace('`', '', $string) . '`';
+        return $field;
     }
 
     /**
@@ -451,10 +517,14 @@ class QueryBuilder
      *
      * `getSort()` is not on {@see RequestInterface} — it exists only on the concrete
      * fulltext request, so it is probed defensively exactly as Magento's own Sort builder does.
+     * With a known schema, a select attribute sorts on its `sort_<code>` label field when declared,
+     * and a clause on a field the schema does not mark sortable is dropped (Typesense would 404).
      *
      * @param RequestInterface $request
+     * @param CollectionSchema|null $schema
+     * @param string $alias
      */
-    private function buildSort(RequestInterface $request): string
+    private function buildSort(RequestInterface $request, ?CollectionSchema $schema, string $alias): string
     {
         if (!method_exists($request, 'getSort')) {
             return '';
@@ -479,11 +549,21 @@ class QueryBuilder
             }
             if ($field === 'relevance') {
                 $field = '_text_match';
+            } elseif ($schema !== null && $schema->isSort('sort_' . $field)) {
+                $field = 'sort_' . $field;
             } else {
                 $field = $this->fieldNameResolver->resolve(
                     $field,
                     $categoryId !== null ? ['categoryId' => $categoryId] : []
                 );
+            }
+            if ($schema !== null && $field !== '_text_match' && !$schema->isSort($field)) {
+                $this->droppedFieldLogger->log(
+                    $alias,
+                    $field,
+                    sprintf('Dropped Typesense sort on field "%s": not sortable in alias "%s".', $field, $alias)
+                );
+                continue;
             }
             $direction = strtolower((string)($item['direction'] ?? 'asc'));
             $direction = $direction === 'desc' ? 'desc' : 'asc';

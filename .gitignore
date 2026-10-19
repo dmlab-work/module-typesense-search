@@ -1,6 +1,7 @@
 /vendor/
 composer.lock
 Test/Unit/.phpunit.cache/
+Test/Integration/.phpunit.cache/
 .phpunit.result.cache
 
 # OS / IDE

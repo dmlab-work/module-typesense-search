@@ -2,14 +2,16 @@
 <!--
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 -->
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:noNamespaceSchemaLocation="urn:magento:framework:Module/etc/module.xsd">
-    <module name="DmLab_TypesenseSearch" setup_version="0.0.1">
+    <module name="DmLab_TypesenseSearch">
         <sequence>
             <module name="DmLab_TypesenseCore"/>
             <module name="DmLab_TypesenseIndexer"/>
+            <module name="Magento_Search"/>
             <module name="Magento_CatalogSearch"/>
             <module name="Magento_AdvancedSearch"/>
             <module name="Magento_Elasticsearch"/>

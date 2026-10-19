@@ -2,6 +2,7 @@
 <!--
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 -->
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -10,6 +11,9 @@
          colors="true"
          failOnWarning="true"
          failOnRisky="true"
+         failOnNotice="true"
+         failOnDeprecation="true"
+         failOnPhpunitDeprecation="true"
          cacheDirectory=".phpunit.cache">
     <testsuites>
         <testsuite name="DmLab_TypesenseSearch unit">

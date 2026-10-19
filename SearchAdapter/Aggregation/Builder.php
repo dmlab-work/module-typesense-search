@@ -1,12 +1,15 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 declare(strict_types=1);
 
 namespace DmLab\TypesenseSearch\SearchAdapter\Aggregation;
 
 use DmLab\TypesenseSearch\SearchAdapter\Dynamic\DataProvider;
+use DmLab\TypesenseSearch\SearchAdapter\Schema\CollectionSchema;
+use DmLab\TypesenseSearch\SearchAdapter\Schema\DroppedFieldLogger;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Search\Dynamic\Algorithm\Repository as AlgorithmRepository;
 use Magento\Framework\Search\Dynamic\DataProviderFactory;
@@ -66,11 +69,13 @@ class Builder
      *        so a non-empty storage is required — the ids themselves are unused by our data provider,
      *        which walks the match-set query, exactly as ES seeds it from its own result hits
      * @param DataProviderFactory $dataProviderFactory engine-resolved price data provider (ours)
+     * @param DroppedFieldLogger $droppedFieldLogger
      */
     public function __construct(
         private readonly AlgorithmRepository $algorithmRepository,
         private readonly EntityStorageFactory $entityStorageFactory,
-        private readonly DataProviderFactory $dataProviderFactory
+        private readonly DataProviderFactory $dataProviderFactory,
+        private readonly DroppedFieldLogger $droppedFieldLogger
     ) {
     }
 
@@ -82,12 +87,15 @@ class Builder
      * would request up to {@see self::MAX_FACET_VALUES} distinct price counts per search for nothing —
      * and the scoped price field is resolved per-context by the algorithm's data provider, not here.
      * Term-bucket fields map 1:1 to their document field, so no name resolution is needed.
+     * With a known schema, a field it does not mark `facet` is skipped (Typesense would 404); its
+     * bucket stays empty in {@see self::build()}.
      *
      * @param array<string,mixed> $params Typesense search params from the query builder
      * @param RequestInterface $request
+     * @param CollectionSchema|null $schema
      * @return array<string,mixed>
      */
-    public function addAggregations(array $params, RequestInterface $request): array
+    public function addAggregations(array $params, RequestInterface $request, ?CollectionSchema $schema = null): array
     {
         $fields = [];
         foreach ($request->getAggregation() ?? [] as $bucket) {
@@ -95,9 +103,22 @@ class Builder
                 continue;
             }
             $field = $bucket->getField();
-            if ($field !== '') {
-                $fields[$field] = true;
+            if ($field === '' || isset($fields[$field])) {
+                continue;
             }
+            if ($schema !== null && !$schema->isFacet($field)) {
+                $this->droppedFieldLogger->log(
+                    $schema->getAlias(),
+                    $field,
+                    sprintf(
+                        'Skipped Typesense facet on field "%s": not a facet field in alias "%s".',
+                        $field,
+                        $schema->getAlias()
+                    )
+                );
+                continue;
+            }
+            $fields[$field] = true;
         }
 
         if ($fields === []) {
@@ -121,12 +142,14 @@ class Builder
      * @param array<string,mixed> $rawResponse decoded Typesense search response
      * @param array<string,mixed> $matchQuery match-set params (`q`/`query_by`/`query_by_weights`/`filter_by`)
      * @param int $storeId resolved store id of the request
+     * @param CollectionSchema|null $schema types term values by field; null keeps them strings
      */
     public function build(
         RequestInterface $request,
         array $rawResponse,
         array $matchQuery = [],
-        int $storeId = 0
+        int $storeId = 0,
+        ?CollectionSchema $schema = null
     ): Aggregation {
         $facets = $this->indexFacets($rawResponse['facet_counts'] ?? []);
         $matchedIds = $this->matchedIds($rawResponse['hits'] ?? []);
@@ -138,7 +161,8 @@ class Builder
                     ? []
                     : $this->buildDynamicValues($bucket, $request->getDimensions(), $matchQuery, $storeId, $matchedIds);
             } else {
-                $values = $this->buildTermValues($facets[$bucket->getField()] ?? null);
+                $field = $bucket->getField();
+                $values = $this->buildTermValues($facets[$field] ?? null, $schema?->getType($field));
             }
             $buckets[$bucket->getName()] = new Bucket($bucket->getName(), $values);
         }
@@ -190,12 +214,13 @@ class Builder
     }
 
     /**
-     * Term facet → one aggregation value per distinct value.
+     * Term facet → one aggregation value per distinct value, typed by the field's schema type.
      *
      * @param array<string,mixed>|null $facet
+     * @param string|null $type Typesense field type; null or non-numeric keeps string values
      * @return Value[]
      */
-    private function buildTermValues(?array $facet): array
+    private function buildTermValues(?array $facet, ?string $type): array
     {
         $values = [];
         foreach ($facet['counts'] ?? [] as $count) {
@@ -203,13 +228,27 @@ class Builder
             if ($value === null) {
                 continue;
             }
-            $values[] = new Value(
-                (string)$value,
-                ['value' => $value, 'count' => (int)($count['count'] ?? 0)]
-            );
+            $value = $this->typeValue($value, $type);
+            $values[] = new Value($value, ['value' => $value, 'count' => (int)($count['count'] ?? 0)]);
         }
 
         return $values;
+    }
+
+    /**
+     * Int fields → `int` (GraphQL `Category` builder compares strictly), legacy `bool` → `1`/`0`.
+     *
+     * @param mixed $value raw facet value (Typesense returns strings)
+     * @param string|null $type
+     * @return int|string
+     */
+    private function typeValue(mixed $value, ?string $type): int|string
+    {
+        return match ($type) {
+            'int32', 'int64', 'int32[]', 'int64[]' => (int)$value,
+            'bool' => in_array(strtolower((string)$value), ['true', '1'], true) ? 1 : 0,
+            default => (string)$value,
+        };
     }
 
     /**

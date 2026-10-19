@@ -2,11 +2,11 @@
 <!--
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 -->
 <engines xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Search/etc/search_engine.xsd">
-    <!-- Honest declaration: only claim a feature once a module implements it. -->
     <engine name="typesense">
-        <feature name="synonyms" support="false" />
+        <feature name="synonyms" support="true" />
     </engine>
 </engines>

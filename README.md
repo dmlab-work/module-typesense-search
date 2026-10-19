@@ -23,27 +23,44 @@ bin/magento setup:upgrade
 
 1. *Stores → Configuration → Catalog → Catalog Search*.
 2. Set **Search Engine** to **Typesense** and fill in the connection fields (host / port / protocol /
-   API key — owned by `typesense-indexer`). The connection is validated on save.
+   API key — owned by `typesense-indexer`). **Test Connection** checks the unsaved form values
+   (node health + API key); a masked key falls back to the saved one only for the saved node.
 3. Reindex: `bin/magento indexer:reindex catalogsearch_fulltext`.
 
-Switching back to OpenSearch/Elasticsearch is reversible — pick the other engine and reindex.
-`setup:install --search-engine=typesense --typesense-nodes=<host:port> --typesense-protocol=<http|https>`
-works too (the API key is set in admin afterwards, via its encrypted backend).
+Selection is admin-only: Magento's `setup:install` accepts only `elasticsearch8|opensearch`.
+`setup:upgrade` validates the saved Typesense connection. Switching back to OpenSearch/Elasticsearch
+is reversible — pick the other engine and reindex.
 
 ## Covered
 
 Quick + advanced search · category listings · layered navigation (facet buckets + counts) · price
-ranges / dynamic intervals · typo-tolerant suggestions (honouring `catalog/search/search_suggestion_*`).
+ranges / dynamic intervals · native search synonyms (*Marketing → Search Synonyms*, synced by
+`typesense-indexer`) · "Did you mean" = one typo-corrected query (`search_suggestion_count` only
+enables/disables it). `etc/search_engine.xml` declares only what is implemented.
 
-Not yet: `synonyms` (a later module). Constructs Typesense's grammar cannot express (wildcard /
-negated compound filters) degrade to an empty result rather than a wrong one; standard catalog flows
-never produce them. `etc/search_engine.xml` declares only what is implemented.
+## Known differences
 
-## The `QueryModifierInterface` seam
+- Advanced Search by SKU matches a token **prefix** (`WSH1` → `WSH12…`); ES/OpenSearch match `*value*`.
+- Position sort with several categories uses the first category id (Typesense has no
+  min-over-fields sort).
+- Sort/facet clauses on fields missing from the schema (e.g. a category not yet reindexed) are
+  dropped and logged, not fatal; a filter on a missing field, or with a value that does not fit the
+  field type, returns an empty result.
+- The alias schema is cached 5 min and dropped on every alias swap or attribute schema PATCH.
+  Synonym-set existence is cached 5 min: a store's first synonym group takes effect within 5 min
+  (`bin/magento cache:flush` applies it now).
+- Constructs Typesense's grammar cannot express (negated wildcard / compound filters) degrade to an
+  empty result rather than a wrong one; standard catalog flows never produce them.
 
-Query building is a **di-sorted pipeline**, never a `preference` — so paid modules (merchandising,
-semantic) compose instead of colliding. The composite ships empty; add a step by merging into the
-`modifiers` array in `di.xml`:
+## Extension seams
+
+Both are **di-sorted pipelines**, never a `preference` — so paid modules (merchandising, semantic)
+compose instead of colliding. Both ship empty; steps run in `sortOrder`, each receiving the previous
+step's output.
+
+`QueryModifierInterface::modify(array $query, RequestInterface $request): array` — rewrites the
+Typesense search payload (already carrying `facet_by`). Sort/facet clauses on missing fields are
+dropped afterwards; modifier params also reach price statistics.
 
 ```xml
 <type name="DmLab\TypesenseSearch\SearchAdapter\Query\QueryModifier">
@@ -55,12 +72,35 @@ semantic) compose instead of colliding. The composite ships empty; add a step by
 </type>
 ```
 
-Each `QueryModifierInterface::modify(array $query, RequestInterface $request): array` receives the
-previous step's payload; steps run in `sortOrder`.
+`ResponseProcessorInterface::process(array $response, array $params, RequestInterface $request): array`
+— rewrites the raw Typesense response before hits and facets are mapped.
+
+```xml
+<type name="DmLab\TypesenseSearch\SearchAdapter\Response\ResponseProcessor">
+    <arguments>
+        <argument name="processors" xsi:type="array">
+            <item sortOrder="10" name="merchandising" xsi:type="object">Vendor\Module\Response\MyProcessor</item>
+        </argument>
+    </arguments>
+</type>
+```
 
 ## Requirements
 
-Magento 2.4.x · PHP 8.3–8.5 · a running Typesense server (connection owned by `typesense-indexer`).
+Magento 2.4.9+ (`magento/framework ^103.0.9`) · PHP 8.3–8.5 · Typesense ≥ 30.0 ·
+`dmlab/module-typesense-core` and `dmlab/module-typesense-indexer` `^0.2.0` (the indexer owns the
+connection settings).
+
+## Integration tests
+
+`Test/Integration/` runs against a real Typesense (throw-away `it_search_*` collections) and is
+skipped unless `TYPESENSE_TEST_URL` and `TYPESENSE_TEST_API_KEY` are set:
+
+```bash
+docker exec -w /var/www/html/m2-modules/module-typesense-search -e MAGENTO_ROOT=/var/www/html \
+  -e TYPESENSE_TEST_URL=http://typesense:8108 -e TYPESENSE_TEST_API_KEY=<key> \
+  magento-app php /var/www/html/vendor/bin/phpunit -c Test/Integration/phpunit.xml
+```
 
 ## License
 

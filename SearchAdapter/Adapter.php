@@ -1,6 +1,7 @@
 <?php
 /**
  * Copyright © DMLab. All rights reserved.
+ * Licensed under the Open Software License version 3.0 (OSL-3.0). See LICENSE.
  */
 declare(strict_types=1);
 
@@ -13,6 +14,9 @@ use DmLab\TypesenseSearch\SearchAdapter\Aggregation\Builder as AggregationBuilde
 use DmLab\TypesenseSearch\Exception\UnsupportedSearchRequestException;
 use DmLab\TypesenseSearch\SearchAdapter\Query\QueryBuilder;
 use DmLab\TypesenseSearch\SearchAdapter\Query\QueryModifier;
+use DmLab\TypesenseSearch\SearchAdapter\Response\ResponseProcessor;
+use DmLab\TypesenseSearch\SearchAdapter\Schema\ParamsSanitizer;
+use DmLab\TypesenseSearch\SearchAdapter\Schema\SchemaReader;
 use DmLab\TypesenseSearch\SearchAdapter\StoreResolver;
 use Magento\AdvancedSearch\Model\Client\ClientException;
 use Magento\Framework\Api\AttributeInterface;
@@ -29,9 +33,9 @@ use Psr\Log\LoggerInterface;
 /**
  * Typesense search adapter — the query side of the engine.
  *
- * Translates a Magento {@see RequestInterface} into a Typesense search (via
- * {@see QueryBuilder} + the {@see QueryModifier} pipeline), executes it against the
- * store's collection **alias**, and maps the hits back into a {@see QueryResponse}.
+ * Pipeline: {@see QueryBuilder} → {@see AggregationBuilder::addAggregations()} → {@see QueryModifier}
+ * → {@see ParamsSanitizer} → search the store's collection **alias** → {@see ResponseProcessor}
+ * → map hits and facets into a {@see QueryResponse}.
  *
  * The alias name is owned by `typesense-indexer` ({@see IndexNameResolverInterface}); this
  * adapter never rebuilds the `<prefix>_<indexerId>_<storeId>` string itself, so the
@@ -40,9 +44,11 @@ use Psr\Log\LoggerInterface;
  *
  * Error contract: a missing collection (HTTP 404 — the store has not been reindexed
  * yet) and a request Typesense's grammar cannot express (an
- * {@see UnsupportedSearchRequestException} — e.g. Advanced Search's SKU wildcard) both
- * degrade to an empty response so the storefront keeps working; every other Typesense
- * failure is surfaced as a {@see ClientException} so real breakage is loud.
+ * {@see UnsupportedSearchRequestException} — e.g. a negated wildcard) both
+ * degrade to an empty response so the storefront keeps working. A field-not-found error
+ * invalidates the cached schema and retries without the failing sort/facet clause (a filter on
+ * a missing field degrades to empty); every other Typesense failure is surfaced as a
+ * {@see ClientException} so real breakage is loud.
  *
  * Layered-navigation aggregations are requested via {@see AggregationBuilder::addAggregations()}
  * (adds `facet_by`) and mapped from the response's `facet_counts` by
@@ -78,6 +84,37 @@ class Adapter implements AdapterInterface
     private const FAN_OUT_LOG_THRESHOLD = 10;
 
     /**
+     * Typesense 30.x message for a field the schema lacks: groups are kind (`facet `/`filter `), field, sort suffix.
+     */
+    private const FIELD_NOT_FOUND_PATTERN
+        = '/Could not find a (facet |filter )?field named `([^`]+)` in the schema( for sorting)?/';
+
+    /**
+     * Retries after a field-not-found error: the schema is refreshed once and the search retried once.
+     */
+    private const MAX_FIELD_RETRIES = 1;
+
+    /**
+     * Params that shape the returned page rather than the match set; excluded from the price replay.
+     */
+    private const NON_MATCH_KEYS = [
+        'page' => true,
+        'per_page' => true,
+        'offset' => true,
+        'limit' => true,
+        'sort_by' => true,
+        'facet_by' => true,
+        'max_facet_values' => true,
+        'facet_query' => true,
+        'include_fields' => true,
+        'exclude_fields' => true,
+        'highlight_fields' => true,
+        'highlight_full_fields' => true,
+        'group_by' => true,
+        'group_limit' => true,
+    ];
+
+    /**
      * @param QueryBuilder $queryBuilder request → Typesense search params
      * @param QueryModifier $queryModifier di-sorted modifier pipeline applied after the builder
      * @param AggregationBuilder $aggregationBuilder adds `facet_by` and maps `facet_counts` → aggregations
@@ -85,6 +122,9 @@ class Adapter implements AdapterInterface
      * @param StoreResolver $storeResolver resolves the request dimension to a store id
      * @param TypesenseClient $client core's sole Typesense REST client
      * @param LoggerInterface $logger
+     * @param SchemaReader $schemaReader cached alias schema, invalidated on a field-not-found error
+     * @param ParamsSanitizer $paramsSanitizer drops clauses on undeclared fields, and the failing one before a retry
+     * @param ResponseProcessor $responseProcessor di-sorted pipeline applied to the raw response
      */
     public function __construct(
         private readonly QueryBuilder $queryBuilder,
@@ -93,7 +133,10 @@ class Adapter implements AdapterInterface
         private readonly IndexNameResolverInterface $indexNameResolver,
         private readonly StoreResolver $storeResolver,
         private readonly TypesenseClient $client,
-        private readonly LoggerInterface $logger
+        private readonly LoggerInterface $logger,
+        private readonly SchemaReader $schemaReader,
+        private readonly ParamsSanitizer $paramsSanitizer,
+        private readonly ResponseProcessor $responseProcessor
     ) {
     }
 
@@ -104,16 +147,24 @@ class Adapter implements AdapterInterface
      */
     public function query(RequestInterface $request): QueryResponse
     {
+        $storeId = $this->storeResolver->resolve($request);
+
+        $alias = $this->indexNameResolver->getAliasName(Fulltext::INDEXER_ID, $storeId);
+        $schema = $this->schemaReader->get($alias);
+
         try {
-            $params = $this->queryModifier->modify($this->queryBuilder->build($request), $request);
+            $params = $this->queryBuilder->build($request, $schema);
+            $params = $this->aggregationBuilder->addAggregations($params, $request, $schema);
+            $params = $this->queryModifier->modify($params, $request);
         } catch (UnsupportedSearchRequestException $e) {
-            // A request carries a construct Typesense's grammar cannot express — e.g. Advanced
-            // Search's SKU `wildcardFilter` (advanced_search_container). Degrade to an empty
-            // response so the storefront page renders, rather than fataling with a 500.
+            // A request carries a construct Typesense's grammar cannot express (e.g. a negated
+            // wildcard or a filter on a field the schema lacks). Degrade to an empty response
+            // so the storefront page renders, rather than fataling with a 500.
             $this->logger->warning('Unsupported Typesense search request: ' . $e->getMessage());
 
             return new QueryResponse([], $this->aggregationBuilder->build($request, []), 0);
         }
+        $params = $this->paramsSanitizer->sanitize($params, $schema);
 
         // A real text search with no searchable fields (misconfigured store) would make
         // Typesense reject an empty `query_by` (HTTP 400) — degrade to empty, as Suggestions does.
@@ -121,11 +172,7 @@ class Adapter implements AdapterInterface
             return new QueryResponse([], $this->aggregationBuilder->build($request, []), 0);
         }
 
-        $params = $this->aggregationBuilder->addAggregations($params, $request);
-        $storeId = $this->storeResolver->resolve($request);
-        $alias = $this->indexNameResolver->getAliasName(Fulltext::INDEXER_ID, $storeId);
-
-        $raw = $this->search($alias, $params);
+        $raw = $this->responseProcessor->process($this->search($alias, $params), $params, $request);
 
         $documents = $this->mapDocuments($raw['hits'] ?? []);
         $total = isset($raw['found']) ? (int)$raw['found'] : count($documents);
@@ -137,24 +184,22 @@ class Adapter implements AdapterInterface
 
         return new QueryResponse(
             $documents,
-            $this->aggregationBuilder->build($request, $raw, $matchQuery, $storeId),
+            $this->aggregationBuilder->build($request, $raw, $matchQuery, $storeId, $schema),
             $total
         );
     }
 
     /**
-     * The match-set defining params (`q`/`query_by`/`query_by_weights`/`filter_by`) of the search,
-     * for the aggregation builder to replay dynamic price statistics over the whole result set.
+     * Final params minus {@see self::NON_MATCH_KEYS}, replayed for dynamic price statistics.
+     *
+     * Modifier params such as `vector_query` and `pinned_hits` are kept, so price ranges match the searched set.
      *
      * @param array<string,mixed> $params final Typesense search params (post modifier pipeline)
      * @return array<string,mixed>
      */
     private function matchQuery(array $params): array
     {
-        return array_intersect_key(
-            $params,
-            ['q' => true, 'query_by' => true, 'query_by_weights' => true, 'filter_by' => true]
-        );
+        return array_diff_key($params, self::NON_MATCH_KEYS);
     }
 
     /**
@@ -243,14 +288,15 @@ class Adapter implements AdapterInterface
     }
 
     /**
-     * Run a single Typesense search, degrading gracefully on a missing collection.
+     * Run a single Typesense search, degrading gracefully on a missing collection or field.
      *
      * @param string $alias collection alias to query
      * @param array<string,scalar> $params Typesense search parameters
+     * @param int $retries field-not-found retries already spent
      * @return array<string,mixed> decoded Typesense response, or an empty array when the collection is absent
      * @throws ClientException
      */
-    private function execute(string $alias, array $params): array
+    private function execute(string $alias, array $params, int $retries = 0): array
     {
         try {
             return $this->client->request(
@@ -270,6 +316,38 @@ class Adapter implements AdapterInterface
                 return [];
             }
 
+            $missing = $this->missingField($e);
+            if ($missing !== null) {
+                [$key, $field] = $missing;
+                $this->invalidateStaleSchema($alias, $field);
+                if ($key === 'filter_by') {
+                    $this->logger->critical(sprintf(
+                        'Typesense filter field "%s" is missing in alias "%s"; returning no results.',
+                        $field,
+                        $alias
+                    ));
+
+                    return [];
+                }
+                if ($key !== null
+                    && $retries < self::MAX_FIELD_RETRIES
+                    && $this->paramsSanitizer->hasField($params, $key, $field)
+                ) {
+                    $this->logger->critical(sprintf(
+                        'Typesense %s field "%s" is missing in alias "%s"; retrying without it.',
+                        $key,
+                        $field,
+                        $alias
+                    ));
+
+                    return $this->execute(
+                        $alias,
+                        $this->paramsSanitizer->removeField($params, $key, $field),
+                        $retries + 1
+                    );
+                }
+            }
+
             $this->logger->critical($e);
 
             throw new ClientException('Could not perform Typesense search query.', $e->getCode(), $e);
@@ -277,14 +355,51 @@ class Adapter implements AdapterInterface
     }
 
     /**
-     * Whether a Typesense failure is a genuinely missing collection (safe to degrade to empty).
+     * Drop the cached schema after a field-not-found error, unless only a regex declaration covers the field.
      *
-     * Typesense returns HTTP 404 not only for a missing collection but also for a `sort_by` on a
-     * non-`sort` field or a `facet_by` on a non-`facet` field — foreseeable when an attribute is
-     * exposed for sorting/filtering by Magento but the schema PATCH has not landed (or, for
-     * multiselect attributes, is deliberately not sortable). Only the missing-collection case may
-     * degrade to an empty response; a field-level 404 must surface as a {@see ClientException} so a
-     * mis-flagged attribute fails loudly instead of silently emptying the whole listing.
+     * A regex-covered name (`position_category_<new id>`) is missing until a document carries it; a re-read
+     * cannot help, so invalidating would only defeat the cache on every such request.
+     *
+     * @param string $alias
+     * @param string $field
+     */
+    private function invalidateStaleSchema(string $alias, string $field): void
+    {
+        $schema = $this->schemaReader->get($alias);
+        if ($schema !== null && $schema->has($field) && !$schema->declaresExactly($field)) {
+            return;
+        }
+
+        $this->schemaReader->invalidate($alias);
+    }
+
+    /**
+     * Param key and field of a Typesense field-not-found error, or null for any other failure.
+     *
+     * The key is `sort_by`, `facet_by` or `filter_by`; null for a `query_by` field, which is not retried.
+     *
+     * @param TypesenseException $e
+     * @return array{0:?string,1:string}|null
+     */
+    private function missingField(TypesenseException $e): ?array
+    {
+        $message = (string)($e->getResponseBody()['message'] ?? $e->getMessage());
+        if (preg_match(self::FIELD_NOT_FOUND_PATTERN, $message, $match) !== 1) {
+            return null;
+        }
+
+        $key = match (true) {
+            $match[1] === 'facet ' => 'facet_by',
+            $match[1] === 'filter ' => 'filter_by',
+            ($match[3] ?? '') !== '' => 'sort_by',
+            default => null,
+        };
+
+        return [$key, $match[2]];
+    }
+
+    /**
+     * Whether a Typesense failure is a genuinely missing collection (safe to degrade to empty).
      *
      * @param TypesenseException $e
      */
