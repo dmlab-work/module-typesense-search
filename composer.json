@@ -3,7 +3,7 @@
     "description": "Registers Typesense as a selectable Magento search engine and implements the query side: translates a Magento search request into a Typesense query and returns matched IDs plus aggregations. Serves quick/advanced search, category listings and layered navigation. Drop-in replacement for OpenSearch/Elasticsearch, free and uncapped.",
     "type": "magento2-module",
     "license": "OSL-3.0",
-    "version": "0.1.1",
+    "version": "0.2.0",
     "require": {
         "php": "~8.3.0||~8.4.0||~8.5.0",
         "magento/framework": "^103.0.9",
