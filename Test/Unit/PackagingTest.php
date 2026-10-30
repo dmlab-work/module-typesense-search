@@ -43,9 +43,68 @@ class PackagingTest extends TestCase
         self::assertSame('^0.2.0', $require['dmlab/module-typesense-indexer']);
     }
 
+    public function testComposerSupportsPhp82AndPhpunit11(): void
+    {
+        $composer = $this->composer();
+
+        self::assertSame('~8.2.0||~8.3.0||~8.4.0||~8.5.0', $composer['require']['php']);
+        self::assertSame('^11.5||^12.5', $composer['require-dev']['phpunit/phpunit']);
+    }
+
+    public function testComposerCarriesDiscoveryMetadata(): void
+    {
+        $composer = $this->composer();
+        $repo = 'https://github.com/dmlab-work/module-typesense-search';
+
+        self::assertContains('typesense', $composer['keywords']);
+        self::assertContains('magento2-module', $composer['keywords']);
+        self::assertSame($repo, $composer['homepage']);
+        self::assertSame($repo . '/issues', $composer['support']['issues']);
+        self::assertSame($repo, $composer['support']['source']);
+        self::assertArrayHasKey('dmlab/module-typesense-instant-search', $composer['suggest']);
+    }
+
     public function testComposerKeepsVersionKey(): void
     {
         self::assertArrayHasKey('version', $this->composer());
+    }
+
+    public function testChangelogTopSectionMatchesComposerVersion(): void
+    {
+        $changelog = (string)file_get_contents($this->root() . '/CHANGELOG.md');
+
+        self::assertSame(1, preg_match('/^## (\S+)$/m', $changelog, $match));
+        self::assertSame($this->composer()['version'], $match[1]);
+    }
+
+    public function testCiCoversPhp82To85AndSkipsDownloadCounting(): void
+    {
+        $ci = (string)file_get_contents($this->root() . '/.github/workflows/ci.yml');
+
+        self::assertStringContainsString("php: ['8.2', '8.3', '8.4', '8.5']", $ci);
+        self::assertSame(2, substr_count($ci, '- uses: ramsey/composer-install@'));
+        self::assertSame(2, preg_match_all(
+            '/- run: composer config notify-on-install false\s+- uses: ramsey\/composer-install@/',
+            $ci
+        ));
+    }
+
+    public function testReadmeSectionOrderAndScreenshot(): void
+    {
+        $readme = (string)file_get_contents($this->root() . '/README.md');
+        $screenshot = '.github/images/search-results.jpeg';
+
+        self::assertStringContainsString('](' . $screenshot . ')', $readme);
+        self::assertFileExists($this->root() . '/' . $screenshot);
+
+        preg_match_all('/^## (.+)$/m', $readme, $matches);
+        self::assertSame(
+            [
+                'Install', 'Requirements', 'Hyvä', 'Select Typesense', 'Covered', 'Known differences',
+                'Hosting', 'Integration tests', 'Architecture', 'License',
+            ],
+            $matches[1]
+        );
     }
 
     public function testModuleXmlHasNoSetupVersion(): void

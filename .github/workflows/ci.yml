@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.3', '8.4', '8.5']
+        php: ['8.2', '8.3', '8.4', '8.5']
     steps:
       - uses: actions/checkout@v7
 
@@ -61,6 +61,8 @@ jobs:
           composer config repositories.mage-os composer https://mirror.mage-os.org/
           composer config --no-plugins allow-plugins.magento/magento-composer-installer false
           composer config --no-plugins allow-plugins.magento/composer-dependency-version-audit-plugin false
+
+      - run: composer config notify-on-install false
 
       - uses: ramsey/composer-install@v4
 
@@ -101,6 +103,8 @@ jobs:
           composer config repositories.mage-os composer https://mirror.mage-os.org/
           composer config --no-plugins allow-plugins.magento/magento-composer-installer false
           composer config --no-plugins allow-plugins.magento/composer-dependency-version-audit-plugin false
+
+      - run: composer config notify-on-install false
 
       - uses: ramsey/composer-install@v4
 

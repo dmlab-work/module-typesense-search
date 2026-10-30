@@ -48,7 +48,7 @@ use Psr\Log\LoggerInterface;
  * degrade to an empty response so the storefront keeps working. A field-not-found error
  * invalidates the cached schema and retries without the failing sort/facet clause (a filter on
  * a missing field degrades to empty); every other Typesense failure is surfaced as a
- * {@see ClientException} so real breakage is loud.
+ * {@see ClientException} (2.4.9+; a `\RuntimeException` before it) so real breakage is loud.
  *
  * Layered-navigation aggregations are requested via {@see AggregationBuilder::addAggregations()}
  * (adds `facet_by`) and mapped from the response's `facet_counts` by
@@ -143,7 +143,7 @@ class Adapter implements AdapterInterface
     /**
      * @inheritDoc
      *
-     * @throws ClientException on any non-404 Typesense failure
+     * @throws ClientException|\RuntimeException on any non-404 Typesense failure
      */
     public function query(RequestInterface $request): QueryResponse
     {
@@ -208,7 +208,7 @@ class Adapter implements AdapterInterface
      * @param string $alias collection alias to query
      * @param array<string,scalar> $params Typesense search parameters
      * @return array<string,mixed> decoded Typesense response, or an empty array when the collection is absent
-     * @throws ClientException
+     * @throws ClientException|\RuntimeException
      */
     private function search(string $alias, array $params): array
     {
@@ -230,7 +230,7 @@ class Adapter implements AdapterInterface
      * @param array<string,scalar> $params Typesense search parameters (`per_page`/`page` window)
      * @param int $limit total hits the window asks for
      * @return array<string,mixed>
-     * @throws ClientException
+     * @throws ClientException|\RuntimeException
      */
     private function searchWindow(string $alias, array $params, int $limit): array
     {
@@ -294,7 +294,7 @@ class Adapter implements AdapterInterface
      * @param array<string,scalar> $params Typesense search parameters
      * @param int $retries field-not-found retries already spent
      * @return array<string,mixed> decoded Typesense response, or an empty array when the collection is absent
-     * @throws ClientException
+     * @throws ClientException|\RuntimeException
      */
     private function execute(string $alias, array $params, int $retries = 0): array
     {
@@ -350,8 +350,23 @@ class Adapter implements AdapterInterface
 
             $this->logger->critical($e);
 
-            throw new ClientException('Could not perform Typesense search query.', $e->getCode(), $e);
+            throw $this->searchFailure($e);
         }
+    }
+
+    /**
+     * Exception for a failed search: `ClientException` where it exists (2.4.9+, GraphQL returns an empty result).
+     *
+     * @param TypesenseException $e
+     * @return \Exception
+     */
+    private function searchFailure(TypesenseException $e): \Exception
+    {
+        $message = 'Could not perform Typesense search query.';
+
+        return class_exists(ClientException::class)
+            ? new ClientException($message, $e->getCode(), $e)
+            : new \RuntimeException($message, $e->getCode(), $e);
     }
 
     /**

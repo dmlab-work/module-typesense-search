@@ -692,17 +692,17 @@ class AdapterTest extends TestCase
         );
         $this->schemaReader->expects($this->exactly(2))->method('invalidate')->with('alias');
 
-        $this->expectException(ClientException::class);
+        $this->expectSearchFailure();
 
         try {
             $this->adapter()->query($this->request());
-        } catch (ClientException $e) {
+        } catch (\Exception $e) {
             $this->assertSame($last, $e->getPrevious());
             throw $e;
         }
     }
 
-    public function testQueryByFieldNotFoundIsMappedToClientException(): void
+    public function testQueryByFieldNotFoundIsMappedToSearchFailure(): void
     {
         $this->queryBuilder->method('build')->willReturn(['q' => 'shoes', 'query_by' => 'name,gone']);
         $this->queryModifier->method('modify')->willReturnArgument(0);
@@ -711,7 +711,7 @@ class AdapterTest extends TestCase
             $this->fieldNotFound('Could not find a field named `gone` in the schema.')
         );
 
-        $this->expectException(ClientException::class);
+        $this->expectSearchFailure();
 
         $this->adapter()->query($this->request());
     }
@@ -758,7 +758,7 @@ class AdapterTest extends TestCase
         $this->assertCount(0, iterator_to_array($response->getIterator()));
     }
 
-    public function testServerErrorIsMappedToClientException(): void
+    public function testServerErrorIsMappedToSearchFailure(): void
     {
         $this->queryBuilder->method('build')->willReturn(['q' => '*']);
         $this->queryModifier->method('modify')->willReturnArgument(0);
@@ -767,17 +767,18 @@ class AdapterTest extends TestCase
         $this->client->method('request')->willThrowException($cause);
         $this->logger->expects($this->once())->method('critical');
 
-        $this->expectException(ClientException::class);
+        $this->expectSearchFailure();
 
         try {
             $this->adapter()->query($this->request());
-        } catch (ClientException $e) {
+        } catch (\Exception $e) {
             $this->assertSame($cause, $e->getPrevious());
+            $this->assertSame(500, $e->getCode());
             throw $e;
         }
     }
 
-    public function testUnreachableNodeIsMappedToClientException(): void
+    public function testUnreachableNodeIsMappedToSearchFailure(): void
     {
         $this->queryBuilder->method('build')->willReturn(['q' => '*']);
         $this->queryModifier->method('modify')->willReturnArgument(0);
@@ -787,8 +788,34 @@ class AdapterTest extends TestCase
         );
         $this->logger->expects($this->once())->method('critical');
 
+        $this->expectSearchFailure();
+
+        $this->adapter()->query($this->request());
+    }
+
+    public function testSearchFailureIsClientExceptionWhereMagentoShipsIt(): void
+    {
+        if (!class_exists(ClientException::class)) {
+            $this->markTestSkipped('ClientException ships with Magento 2.4.9+ only.');
+        }
+        $this->queryBuilder->method('build')->willReturn(['q' => '*']);
+        $this->queryModifier->method('modify')->willReturnArgument(0);
+        $this->indexNameResolver->method('getAliasName')->willReturn('alias');
+        $this->client->method('request')->willThrowException(new TypesenseException('Internal error', 500));
+
         $this->expectException(ClientException::class);
 
         $this->adapter()->query($this->request());
+    }
+
+    /**
+     * Expect the failure class the adapter picks on the installed Magento, with its message.
+     */
+    private function expectSearchFailure(): void
+    {
+        $this->expectException(
+            class_exists(ClientException::class) ? ClientException::class : \RuntimeException::class
+        );
+        $this->expectExceptionMessage('Could not perform Typesense search query.');
     }
 }
