@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- README: verified on the Hyvä default theme — search results, advanced search, category pages and layered
+  navigation work with nothing to install.
+
 ## 0.2.1
 
 - Supports Magento 2.4.7+ (`magento/framework ^103.0.7`) and PHP 8.2–8.5.

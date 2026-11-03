@@ -107,6 +107,16 @@ class PackagingTest extends TestCase
         );
     }
 
+    public function testReadmeHyvaSectionIsVerified(): void
+    {
+        $readme = (string)file_get_contents($this->root() . '/README.md');
+        self::assertSame(1, preg_match('/^## Hyvä\n(.*?)(?=^## )/msu', $readme, $match));
+
+        self::assertStringContainsString('Verified on the Hyvä default theme', $match[1]);
+        self::assertStringContainsString('nothing to install', $match[1]);
+        self::assertStringNotContainsStringIgnoringCase('not yet verified', $match[1]);
+    }
+
     public function testModuleXmlHasNoSetupVersion(): void
     {
         $xml = simplexml_load_file($this->root() . '/etc/module.xml');

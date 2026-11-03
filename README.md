@@ -21,9 +21,9 @@ Magento 2.4.7+ · PHP 8.2–8.5 · Typesense ≥ 30.0 · `dmlab/module-typesense
 
 ## Hyvä
 
-Nothing Hyvä-specific to install: search results, category pages and layered navigation are rendered
-by the theme from Magento's own search API — this module is a server-side adapter with no frontend
-code. Not yet verified on a Hyvä install.
+Works on Hyvä with nothing to install: search results, advanced search, category pages and layered
+navigation are rendered by the theme from Magento's own search API — this module is a server-side
+adapter with no frontend code. Verified on the Hyvä default theme 1.5.3 (Magento 2.4.9).
 
 Pairs with [typesense-instant-search](https://github.com/dmlab-work/module-typesense-instant-search) for a search-as-you-type dropdown.
 
